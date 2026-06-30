@@ -157,11 +157,11 @@ async function runOrchestrator(renderer: CliRenderer) {
 		else if (e.type === "panes-changed") renderPanes()
 	})
 
-	const port = orchestrator.start()
+	await orchestrator.start()
 	// Name the center window's tab after the session (OSC 0). Done before the
 	// renderer takes over stdout so it sticks.
 	process.stdout.write(`\x1b]0;${orchestrator.sessionName}\x07`)
-	headerText.content = `session: ${orchestrator.sessionName}    hub :${port}`
+	headerText.content = `session: ${orchestrator.sessionName}`
 
 	let buffer = ""
 	function redrawPrompt(): void {
@@ -203,6 +203,20 @@ async function runOrchestrator(renderer: CliRenderer) {
 		renderer.destroy()
 		process.exit(0)
 	}
+
+	// Close every pane when this (command) window goes away by any route — Ctrl+C,
+	// a kill signal, or the window's X (which Windows surfaces as a console-close
+	// signal). orchestrator.stop() proactively tells each pane to exit; the agents
+	// also detect the dropped hub socket on their own, so this is the fast path.
+	for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] as const) {
+		try {
+			process.on(sig, () => shutdown())
+		} catch {
+			// not all signals exist on every platform; ignore
+		}
+	}
+	// Last-ditch synchronous cleanup if the loop exits another way.
+	process.on("exit", () => orchestrator.stop())
 
 	renderer.keyInput.on("keypress", (key: KeyEvent) => {
 		if (key.ctrl && key.name === "c") return shutdown()

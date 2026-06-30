@@ -1,32 +1,28 @@
 /**
  * The orchestrator: the one object the TUI (and later, the real app) talks to.
  *
- * It owns the hub, knows how to launch agents into new panes/tabs/windows via
- * the wt.exe wrapper, and tracks the lifecycle of every pane it created.
+ * It talks to the persistent session daemon (which owns the shells), launches a
+ * thin pane client into each new pane/tab/window via the wt.exe wrapper, and
+ * tracks the lifecycle + tiling of every pane it created. The shells outlive this
+ * process, so closing/reopening reattaches to the same live shell.
  */
 
-import { lightTint, PANE_FG, paletteColor } from "./colors"
+import { paletteColor } from "./colors"
 import {
-	AGENT_PATH,
-	AGENT_SHELL,
 	ANIM_MS,
 	BUN_EXE,
 	CENTER_H_FRAC,
 	CENTER_W_FRAC,
+	CLIENT_PATH,
 	COLOR_MODE,
 	RESTORE_NAME,
 	TILE_GAP,
 } from "./config"
-import { Hub, type HubEvent } from "./hub"
+import { DaemonClient } from "./daemonClient"
+import type { ControlEvent } from "./daemonProtocol"
 import { LayoutManager } from "./layout"
 import { pickUniqueName } from "./names"
-import {
-	generateSessionName,
-	loadSession,
-	type SessionState,
-	saveSession,
-	scrollbackPath,
-} from "./session"
+import { generateSessionName, loadSession, type SessionState, saveSession } from "./session"
 import { findTerminalWindowByExactTitle, type Hwnd, type Rect } from "./win32"
 import { type Direction, spawnTab, spawnWindow } from "./wt"
 
@@ -48,6 +44,8 @@ export interface ManagedPane {
 	color?: string
 	cwd?: string
 	lastCommand?: string
+	/** Whitelisted foreground program (e.g. "vim"), reported by the agent. */
+	foreground?: string
 	createdAt: number
 }
 
@@ -56,7 +54,7 @@ export type OrchestratorEvent =
 	| { type: "panes-changed" }
 
 export class Orchestrator {
-	private readonly hub = new Hub()
+	private readonly daemon = new DaemonClient()
 	private readonly layout = new LayoutManager()
 	private readonly panes = new Map<string, ManagedPane>()
 	private readonly listeners = new Set<(e: OrchestratorEvent) => void>()
@@ -81,11 +79,11 @@ export class Orchestrator {
 		this.emit({ type: "log", level, message })
 	}
 
-	/** Start the hub, capture the fixed center window, and wire hub events. */
-	start(): number {
-		this.hub.on((e) => this.onHubEvent(e))
-		const port = this.hub.start()
-		this.log(`hub listening on 127.0.0.1:${port}`)
+	/** Capture the center window, then connect to (or start) the daemon. */
+	async start(): Promise<void> {
+		this.daemon.on((e) => this.onDaemonEvent(e))
+		// Capture the center FIRST (while our WT window is foreground), before the
+		// daemon spawn can momentarily affect window focus.
 		try {
 			this.layout.captureCenter()
 			this.layout.gap = TILE_GAP
@@ -115,7 +113,12 @@ export class Orchestrator {
 		} catch (err) {
 			this.log(`could not set up center window: ${(err as Error).message}`, "error")
 		}
-		return port
+		try {
+			await this.daemon.ensure(this.sessionName)
+			this.log("session daemon ready")
+		} catch (err) {
+			this.log(`daemon failed to start: ${(err as Error).message}`, "error")
+		}
 	}
 
 	/** Re-spawn the satellites from a session being restored (call after start). */
@@ -131,10 +134,13 @@ export class Orchestrator {
 					color: s.color,
 					cwd: s.cwd,
 					rect: s.rect, // restore to the exact saved size/position
-					replay: true, // replay this pane's saved scrollback
+					relaunch: s.foreground, // cold restore: re-open the program that was running
 				})
-				const pane = this.panes.get(s.id) // carry the saved last-command forward
-				if (pane) pane.lastCommand = s.lastCommand
+				const pane = this.panes.get(s.id) // carry saved metadata forward (daemon will refresh)
+				if (pane) {
+					pane.lastCommand = s.lastCommand
+					pane.foreground = s.foreground
+				}
 			} catch (err) {
 				this.log(`restore failed for "${s.id}": ${(err as Error).message}`, "error")
 			}
@@ -160,6 +166,7 @@ export class Orchestrator {
 					color: p?.color,
 					cwd: p?.cwd,
 					lastCommand: p?.lastCommand,
+					foreground: p?.foreground,
 					rect: s.rect,
 				}
 			})
@@ -174,36 +181,43 @@ export class Orchestrator {
 		}
 	}
 
-	private onHubEvent(e: HubEvent): void {
-		switch (e.type) {
-			case "connected": {
-				const pane = this.panes.get(e.paneId)
-				if (pane) {
-					pane.status = "connected"
-					pane.pid = e.pid
-				}
-				this.log(`pane "${e.paneId}" connected (pid ${e.pid})`)
-				this.emit({ type: "panes-changed" })
-				break
-			}
-			case "disconnected": {
-				const pane = this.panes.get(e.paneId)
-				if (pane) pane.status = "exited"
-				// Drop it from the tiling and let its zone reclaim the space.
-				if (this.layout.has(e.paneId)) this.layout.remove(e.paneId)
-				this.log(`pane "${e.paneId}" disconnected`, "warn")
-				this.emit({ type: "panes-changed" })
-				this.persist()
-				break
-			}
-			case "message": {
-				if (e.message.type === "output") {
-					this.log(`[${e.paneId}] ${e.message.data}`)
-				} else if (e.message.type === "exit") {
-					this.log(`pane "${e.paneId}" shell exited (${e.message.code})`)
-				}
-				break
-			}
+	/** Per-pane state pushed by the daemon (cwd/lastCommand/foreground/pid) and exits. */
+	private onDaemonEvent(e: ControlEvent): void {
+		if (e.session !== this.sessionName) return
+		if (e.event === "paneExited") {
+			const pane = this.panes.get(e.pane)
+			if (pane) pane.status = "exited"
+			if (this.layout.has(e.pane)) this.layout.remove(e.pane)
+			this.log(`pane "${e.pane}" shell exited`, "warn")
+			this.emit({ type: "panes-changed" })
+			this.persist()
+			return
+		}
+		// e.event === "pane": merge the daemon's view into our ManagedPane.
+		const s = e.state
+		const pane = this.panes.get(s.pane)
+		if (!pane) return
+		let changed = false
+		if (s.pid !== undefined && pane.pid !== s.pid) {
+			pane.pid = s.pid
+			pane.status = "connected"
+			changed = true
+		}
+		if (s.cwd !== undefined && pane.cwd !== s.cwd) {
+			pane.cwd = s.cwd
+			changed = true
+		}
+		if (s.lastCommand !== undefined && pane.lastCommand !== s.lastCommand) {
+			pane.lastCommand = s.lastCommand
+			changed = true
+		}
+		if (pane.foreground !== s.foreground) {
+			pane.foreground = s.foreground
+			changed = true
+		}
+		if (changed) {
+			this.persist()
+			this.emit({ type: "panes-changed" })
 		}
 	}
 
@@ -214,32 +228,15 @@ export class Orchestrator {
 		return pickUniqueName(taken)
 	}
 
-	/** argv that launches an agent bound to the given pane id + the hub port. */
-	private agentCommandline(
-		paneId: string,
-		opts: { bg?: string; fg?: string; capture?: string; replay?: boolean } = {},
-	): string[] {
-		const args = [
-			BUN_EXE,
-			AGENT_PATH,
-			"--id",
-			paneId,
-			"--port",
-			String(this.hub.port),
-			"--shell",
-			AGENT_SHELL,
-		]
-		if (opts.bg) args.push("--bg", opts.bg)
-		if (opts.fg) args.push("--fg", opts.fg)
-		if (opts.capture) args.push("--capture", opts.capture)
-		if (opts.replay) args.push("--replay")
-		return args
+	/** argv that launches a thin pane client attached to the daemon for `paneId`. */
+	private clientCommandline(paneId: string): string[] {
+		return [BUN_EXE, CLIENT_PATH, "--session", this.sessionName, "--pane", paneId]
 	}
 
 	/**
-	 * Spawn a satellite window in `direction` and tile it around the fixed
-	 * center. The window runs a managed agent and is positioned/resized via
-	 * Win32 so the center never moves.
+	 * Spawn a satellite window in `direction` and tile it around the fixed center.
+	 * The daemon creates (or warm-reuses) the pane's shell; the window runs a thin
+	 * client attached to it, positioned/resized via Win32 so the center never moves.
 	 */
 	async openPane(direction: Direction, opts: { cwd?: string } = {}): Promise<string> {
 		const id = this.nextId()
@@ -256,12 +253,11 @@ export class Orchestrator {
 		cwd?: string
 		/** Exact rect to restore to (skips auto-tiling). */
 		rect?: Rect
-		/** Replay this pane's saved scrollback before its fresh shell. */
-		replay?: boolean
+		/** Whitelisted program to re-launch on a cold restore (daemon-side). */
+		relaunch?: string
 	}): Promise<void> {
 		const { id, direction } = spec
 		const useTab = COLOR_MODE !== "off" && (COLOR_MODE === "tab" || COLOR_MODE === "both")
-		const useBg = COLOR_MODE !== "off" && (COLOR_MODE === "bg" || COLOR_MODE === "both")
 		const cwd = spec.cwd ?? process.cwd()
 		this.panes.set(id, {
 			id,
@@ -274,17 +270,22 @@ export class Orchestrator {
 		})
 		this.emit({ type: "panes-changed" })
 		try {
+			// Daemon hosts the shell: warm-reuse if it's still alive, else (re)create
+			// it — cold-restoring from the capture + cwd when the daemon was restarted.
+			const res = await this.daemon.createPane(this.sessionName, id, {
+				cwd,
+				relaunch: spec.relaunch,
+			})
+			this.log(
+				`pane "${id}" ${res.warm ? "reattached (warm)" : res.cold ? "cold-restored" : "created"}`,
+			)
+
 			// Spawn near the final spot: the saved rect when restoring, else the zone.
 			const origin = spec.rect
 				? { x: spec.rect.x, y: spec.rect.y }
 				: this.layout.zoneOrigin(direction)
 			await spawnWindow({
-				commandline: this.agentCommandline(id, {
-					bg: useBg && spec.color ? lightTint(spec.color) : undefined,
-					fg: useBg && spec.color ? PANE_FG : undefined,
-					capture: scrollbackPath(this.sessionName, id),
-					replay: spec.replay,
-				}),
+				commandline: this.clientCommandline(id),
 				cwd,
 				title: satelliteTitle(id),
 				tabColor: useTab ? spec.color : undefined,
@@ -317,17 +318,18 @@ export class Orchestrator {
 		}
 	}
 
-	/** Open a new tab with a managed agent. */
+	/** Open a new (untiled) tab running a daemon-backed pane. Not restored. */
 	async openTab(opts: { cwd?: string } = {}): Promise<string> {
 		const id = this.nextId()
 		this.panes.set(id, { id, kind: "tab", status: "spawning", createdAt: performance.now() })
 		this.emit({ type: "panes-changed" })
-		await spawnTab({ commandline: this.agentCommandline(id), cwd: opts.cwd, title: id })
+		await this.daemon.createPane(this.sessionName, id, { cwd: opts.cwd })
+		await spawnTab({ commandline: this.clientCommandline(id), cwd: opts.cwd, title: id })
 		this.log(`spawned tab "${id}"`)
 		return id
 	}
 
-	/** Open a new window with a managed agent, optionally positioned/sized. */
+	/** Open a new (untiled) free window running a daemon-backed pane. Not restored. */
 	async openWindow(
 		opts: {
 			cwd?: string
@@ -338,8 +340,9 @@ export class Orchestrator {
 		const id = this.nextId()
 		this.panes.set(id, { id, kind: "window", status: "spawning", createdAt: performance.now() })
 		this.emit({ type: "panes-changed" })
+		await this.daemon.createPane(this.sessionName, id, { cwd: opts.cwd })
 		await spawnWindow({
-			commandline: this.agentCommandline(id),
+			commandline: this.clientCommandline(id),
 			cwd: opts.cwd,
 			pos: opts.pos,
 			size: opts.size,
@@ -349,22 +352,35 @@ export class Orchestrator {
 		return id
 	}
 
-	/** Ask a pane to shut down and forget it. */
+	/** Kill a pane's shell in the daemon (truly gone) and forget it. */
 	kill(paneId: string): boolean {
-		const ok = this.hub.shutdown(paneId)
-		if (ok) this.log(`killing pane "${paneId}"`)
-		else this.log(`no connected pane "${paneId}"`, "warn")
-		return ok
+		if (!this.panes.has(paneId)) {
+			this.log(`no pane "${paneId}"`, "warn")
+			return false
+		}
+		void this.daemon.killPane(this.sessionName, paneId).catch(() => {})
+		this.log(`killing pane "${paneId}"`)
+		return true
 	}
 
 	list(): ManagedPane[] {
 		return [...this.panes.values()]
 	}
 
+	private stopped = false
+
+	/**
+	 * Tear down the UI: persist once, stop watching, and close the satellite client
+	 * windows — but DO NOT kill the shells. They stay alive in the daemon so a later
+	 * restore re-attaches to them. Idempotent.
+	 */
 	stop(): void {
+		if (this.stopped) return
+		this.stopped = true
 		if (this.persistTimer) clearInterval(this.persistTimer)
 		this.persist()
 		this.layout.unwatch()
-		this.hub.stop()
+		void this.daemon.detachSession(this.sessionName).catch(() => {})
+		this.daemon.stop()
 	}
 }

@@ -5,7 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bunx biome check --write ."
+            "command": "pwsh -NoProfile -File \"$CLAUDE_PROJECT_DIR/scripts/verify.ps1\"",
+            "timeout": 120
           }
         ]
       }

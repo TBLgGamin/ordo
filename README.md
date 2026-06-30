@@ -4,9 +4,11 @@ A terminal UI application built with [OpenTUI](https://github.com/sst/opentui), 
 
 ## Stack
 
-- **Runtime:** Bun
+- **Runtime:** Bun **≥ 1.3.14** (required — pane restore uses `Bun.Terminal`, the
+  native Windows ConPTY API added in 1.3.14)
 - **Language:** TypeScript (strict)
 - **TUI:** `@opentui/core`
+- **Terminal restore:** `@xterm/headless` + `@xterm/addon-serialize` (pure JS)
 - **Lint/Format:** Biome
 
 ## Getting started
@@ -124,38 +126,55 @@ black. Set `ORDO_COLOR` to `bg` (light background tint via OSC 11 + dark
 text via OSC 10), `both`, or `off`. The session list colors each pane name with
 its own pastel too.
 
-**Close-the-main-closes-all.** Each satellite holds a connection to the hub in
-the center window. Close the center (quit, Ctrl+C, or the X) and every satellite
-tears itself down with it.
+**Persistent shells.** Pane shells don't live in the pane windows — they live in
+a background **daemon** (see below). Closing a satellite window (or the whole
+app) just detaches; the shell keeps running. Reopening re-attaches to it.
 
-### Sessions (save / restore)
+### Sessions (save / restore) — the daemon model
 
-Every run gets a unique **session name** drawn from Roman-era soldier types
-(`centurion`, `optio`, `signifer`, …); on collision another word is appended in
-kebab-case (`centurion-optio`). The name is shown as the center window's tab
-title. The layout is continuously saved to:
+ordo restores like `tmux`, not like a screenshot. A persistent, windowless
+**daemon** owns every pane's shell + ConPTY and **survives windows and the app
+closing** (it's launched via `Start-Process -WindowStyle Hidden`, so Bun's
+inability to detach doesn't matter). The pane windows run a **thin client** that
+just pipes stdin/stdout to the daemon. So:
+
+- **Close a window / quit the app → the shell stays alive** in the daemon.
+- **Restore → re-attach to the *same live shell***: real running processes, real
+  cwd, the real scrollback — **nothing is reconstructed**, because nothing died.
+
+Every run gets a unique **session name** from Roman-era soldier types
+(`centurion`, `optio`, …; kebab-compounded on collision), shown as the center
+window's tab title. Layout + per-pane state save continuously to:
 
 ```
-%APPDATA%\ordo\sessions\<name>.json
+%APPDATA%\ordo\sessions\<name>.json      # center/zone rects, colors, cwd, last command
+%APPDATA%\ordo\sessions\<name>.scrollback\<pane>.log   # raw VT capture (for cold restore)
+%APPDATA%\ordo\daemon.json               # daemon discovery: { port, token, pid }
 ```
 
-…capturing the center's rect and every satellite's zone, color, starting
-directory, and position. Restore it later with:
+Restore with:
 
 ```powershell
 pwsh -File scripts/launch.ps1 --restore <name>
 ```
 
-It re-opens the center and every pane at their **exact saved size and
-position** (not re-tiled — the precise rects are stored and reapplied), and
-**replays each pane's scrollback** so it looks like you never closed it.
+It re-opens the center and every pane at their **exact saved size/position** and:
 
-How the scrollback works: each pane's agent tees its shell output to a capture
-file (`<name>.scrollback/<pane>.log`, capped at 256 KB). On restore the agent
-prints that back, draws a `──── restored ────` divider, then starts a fresh
-shell. Commands are **not** re-run. A live shell can't truly be snapshotted —
-running processes and live variables don't come back (that needs a tmux/screen
-style detached server) — but the visual history and layout do.
+- **Warm restore** (daemon still running — you closed windows but didn't reboot):
+  re-attaches to the live shell. The daemon replays its in-memory ring buffer (the
+  real recent output) and the shell carries on — running programs and all.
+- **Cold restore** (after a reboot, when the daemon is gone): the daemon starts a
+  fresh shell **in the saved cwd**, replays the capture file through a headless
+  emulator (`@xterm/headless`) so the prior screen comes back, and best-effort
+  re-launches the whitelisted foreground program (`vim`, `claude`, `top`, …) — the
+  only option once the OS has killed every process. Tune the whitelist with
+  `ORDO_RESTORE_PROGRAMS` (empty disables relaunch).
+
+The working directory follows you correctly because the shell reports it via an
+injected **OSC 9;9** prompt hook (PowerShell's `cd` only moves `$PWD`, not the
+process cwd, so this is the reliable source). The last command is captured from
+the keystroke stream (decoding Win32 Input Mode, which is how a ConPTY delivers
+input).
 
 #### Listing sessions
 
@@ -210,27 +229,36 @@ window first if you prefer.
 | `ORDO_WT_WINDOW`  | `0` (current) | Window target for untiled `tab`/`win`     |
 | `ORDO_WT_EXE`     | auto-detected | Path to `wt.exe` if in a custom location  |
 | `ORDO_SHELL`      | `pwsh`        | Shell each agent drives                   |
-| `ORDO_HUB_PORT`   | `0` (random)  | Hub TCP port                              |
+| `ORDO_RESTORE_PROGRAMS` | `vim nvim … claude …` | Programs re-launched on cold restore (empty disables) |
+| `ORDO_SCROLLBACK` | `1000`        | Scrollback lines reconstructed on cold restore |
 
 > Windows-only: the tiling uses `user32.dll` (`EnumWindows`, `SetWindowPos`,
-> `GetMonitorInfo`) through `bun:ffi`.
+> `GetMonitorInfo`) and foreground detection uses `kernel32.dll` (Toolhelp
+> snapshot), both through `bun:ffi`; the daemon hosts shells via the Windows
+> ConPTY API (`Bun.Terminal`).
 
 ## Project layout
 
 ```
 src/index.ts          # TUI front-end (command bar + window/log view)
-src/orchestrator.ts   # high-level API: openPane(dir)/send/broadcast/kill
+src/orchestrator.ts   # high-level API: openPane(dir)/kill; talks to the daemon, owns tiling
+src/daemon.ts         # persistent windowless daemon: hosts every shell+ConPTY, IPC, capture
+src/client.ts         # thin per-pane process: pipes stdin/stdout to the daemon (no shell)
+src/daemonClient.ts   # orchestrator-side daemon RPC + hidden Start-Process spawn/discovery
+src/daemonProtocol.ts # daemon control + attach wire types
 src/layout.ts         # fixed-center geometry + zone tiling
 src/win32.ts          # user32.dll bindings (find/move/resize windows) via bun:ffi
 src/wt.ts             # typed wrapper around wt.exe (spawn windows/tabs/panes)
 src/colors.ts         # unique very-light pastel hues + tint helpers
 src/names.ts          # shared Roman-soldier name pool (sessions + panes)
-src/session.ts        # session save/restore (%APPDATA%\ordo)
-src/hub.ts            # loopback TCP server + agent registry
-src/agent.ts          # runs in each window: drives a shell, relays hub messages
-src/protocol.ts       # newline-delimited JSON message types + framing
-src/config.ts         # paths, window target, shell, hub host/port
+src/session.ts        # session JSON + paths under %APPDATA%\ordo
+src/replay.ts         # reconstructs a pane's screen from its raw-VT capture (cold restore)
+src/vt.ts             # title-strip (OSC 0/1/2), startup-clear suppress, OSC 9;9 cwd, command capture
+src/proctree.ts       # foreground-program detection via Toolhelp snapshot (kernel32)
+src/protocol.ts       # newline-delimited JSON framing (encode / LineDecoder)
+src/config.ts         # paths, window target, shell, restore whitelist
 scripts/launch.ps1    # launch the app in a named WT window
+scripts/verify.ps1    # format + typecheck + tests (Stop hook)
 biome.json            # lint + format config
 tsconfig.json         # TypeScript config (Bun bundler mode)
 .claude/              # Claude Code hooks/settings

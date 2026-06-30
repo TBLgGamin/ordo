@@ -20,6 +20,12 @@ export interface SatelliteState {
 	cwd?: string
 	/** Most recent command sent to this pane (for the session browser). */
 	lastCommand?: string
+	/**
+	 * Whitelisted program that was in the foreground when this pane was saved, if
+	 * any (e.g. `"vim"`). On restore the pane re-launches it fresh. See config's
+	 * RESTORE_PROGRAMS.
+	 */
+	foreground?: string
 	rect: Rect
 }
 
@@ -30,10 +36,17 @@ export interface SessionState {
 	satellites: SatelliteState[]
 }
 
+/** Root ordo data dir: %APPDATA%\ordo (created on demand). */
+export function ordoDir(): string {
+	const base = process.env.APPDATA ?? process.env.LOCALAPPDATA ?? process.env.HOME ?? "."
+	const dir = join(base, "ordo")
+	mkdirSync(dir, { recursive: true })
+	return dir
+}
+
 /** Where sessions live: %APPDATA%\ordo\sessions (created on demand). */
 export function sessionsDir(): string {
-	const base = process.env.APPDATA ?? process.env.LOCALAPPDATA ?? process.env.HOME ?? "."
-	const dir = join(base, "ordo", "sessions")
+	const dir = join(ordoDir(), "sessions")
 	mkdirSync(dir, { recursive: true })
 	return dir
 }

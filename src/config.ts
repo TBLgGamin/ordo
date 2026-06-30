@@ -10,8 +10,11 @@ import { resolve } from "node:path"
 /** Absolute path to this `src` directory (works regardless of cwd). */
 export const SRC_DIR = import.meta.dir
 
-/** Absolute path to the agent entry point that runs inside each spawned pane. */
-export const AGENT_PATH = resolve(SRC_DIR, "agent.ts")
+/** Absolute path to the persistent session daemon entry point. */
+export const DAEMON_PATH = resolve(SRC_DIR, "daemon.ts")
+
+/** Absolute path to the thin pane-client entry point that runs inside each pane. */
+export const CLIENT_PATH = resolve(SRC_DIR, "client.ts")
 
 /** The Bun executable currently running us — reused to launch agents. */
 export const BUN_EXE = process.execPath
@@ -49,11 +52,28 @@ export const DELETE_NAME = argValue("--delete")
 /** The shell each agent drives inside its pane. Override with ORDO_SHELL. */
 export const AGENT_SHELL = process.env.ORDO_SHELL ?? "pwsh"
 
-/** Hub bind address. Loopback only — this is local IPC, never exposed. */
-export const HUB_HOST = "127.0.0.1"
+/**
+ * Programs the agent will re-launch on restore (tmux-resurrect style): if one of
+ * these was the foreground program when the session was saved, the restored pane
+ * re-runs it fresh from the saved cwd. In-memory state is NOT restored — the
+ * program just reopens. Override the list with a space/comma-separated
+ * ORDO_RESTORE_PROGRAMS (empty string disables relaunch entirely).
+ */
+const RESTORE_PROGRAMS_DEFAULT =
+	"vim nvim vi nano emacs claude less more top btop htop python python3 node ssh lazygit"
+export const RESTORE_PROGRAMS: ReadonlySet<string> = new Set(
+	(process.env.ORDO_RESTORE_PROGRAMS ?? RESTORE_PROGRAMS_DEFAULT)
+		.split(/[\s,]+/)
+		.map((s) => s.trim().toLowerCase())
+		.filter(Boolean),
+)
 
-/** `0` lets the OS pick a free ephemeral port; the real one is read back after listen. */
-export const HUB_PORT = Number(process.env.ORDO_HUB_PORT ?? 0)
+/**
+ * How many lines of scrollback the headless emulator keeps when reconstructing a
+ * pane's screen for restore. More = longer history restored, larger work. Override
+ * with ORDO_SCROLLBACK.
+ */
+export const SCROLLBACK_LINES = numEnv("ORDO_SCROLLBACK", 1000)
 
 /** Read a finite numeric env var, falling back to `def`. */
 function numEnv(name: string, def: number): number {

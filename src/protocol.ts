@@ -13,6 +13,16 @@ export type AgentMessage =
 	| { type: "ack"; paneId: string; ofType: HubMessage["type"] }
 	/** A line of output the agent chose to forward (optional, best-effort). */
 	| { type: "output"; paneId: string; data: string }
+	/** A command line the user typed directly into the pane (for the session browser). */
+	| { type: "command"; paneId: string; text: string }
+	/** The pane's current working directory, reported by the shell via OSC 9;9. */
+	| { type: "cwd"; paneId: string; path: string }
+	/**
+	 * The foreground program currently running in the pane (best-effort), so the
+	 * orchestrator can persist it and relaunch it on restore. `name` is null when
+	 * the pane is sitting at a bare shell prompt.
+	 */
+	| { type: "foreground"; paneId: string; name: string | null; cwd?: string }
 	/** The agent's shell (or the agent) is exiting. */
 	| { type: "exit"; paneId: string; code: number }
 
@@ -25,7 +35,8 @@ export type HubMessage =
 	/** Ask the agent to shut its shell and exit cleanly. */
 	| { type: "shutdown" }
 
-export function encode(msg: AgentMessage | HubMessage): Uint8Array {
+/** Frame any JSON-serializable message as a single newline-terminated line. */
+export function encode(msg: object): Uint8Array {
 	return new TextEncoder().encode(`${JSON.stringify(msg)}\n`)
 }
 
