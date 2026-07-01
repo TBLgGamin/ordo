@@ -14,6 +14,31 @@ A terminal UI application built with [OpenTUI](https://github.com/sst/opentui), 
 
 ## Getting started
 
+### One-shot installer (recommended)
+
+From a fresh machine — clones the repo, ensures Bun ≥ 1.3.14, installs deps,
+registers the `ordo` command, and pre-downloads the title model:
+
+```powershell
+iex (irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.ps1)
+```
+
+From an existing clone, run it in place:
+
+```powershell
+.\scripts\install.ps1              # set up this clone
+.\scripts\install.ps1 -SkipModel   # skip the ~230 MB model download
+.\scripts\install.ps1 -Update      # git pull --ff-only, then set up
+```
+
+To pass switches to the remote form:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.ps1))) -SkipModel
+```
+
+### Manual
+
 ```bash
 bun install        # install deps
 bun link           # install the `ordo` command globally (symlinked to this source)
