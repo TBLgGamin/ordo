@@ -16,8 +16,8 @@
  */
 
 import { readFileSync } from "node:fs"
-import { MODELS_DIR, TITLE_MODEL_URI } from "./config"
-import { scrollbackPath } from "./session"
+import { MODELS_DIR, TITLE_MODEL_URI } from "../core/config"
+import { scrollbackPath } from "../core/session"
 
 // node-llama-cpp's types — imported lazily so the native binding only loads if
 // titling actually runs (and a missing/broken install can't crash startup).

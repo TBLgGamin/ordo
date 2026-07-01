@@ -13,7 +13,7 @@ import {
 	type SessionState,
 	sessionExists,
 	sessionsDir,
-} from "../src/session"
+} from "../src/core/session"
 
 // session.ts reads process.env.APPDATA at call time, so point it at a temp dir.
 let tmp: string

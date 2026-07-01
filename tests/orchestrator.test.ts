@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Orchestrator } from "../src/orchestrator"
+import { Orchestrator } from "../src/app/orchestrator"
 
 describe("Orchestrator.stop", () => {
 	test("is safe to call before start and idempotent", () => {

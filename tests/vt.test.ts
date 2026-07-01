@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { CommandLineTracker, TitleStripper } from "../src/vt"
+import { CommandLineTracker, TitleStripper } from "../src/daemon/vt"
 
 const enc = (s: string) => new TextEncoder().encode(s)
 const dec = (b: Uint8Array) => new TextDecoder().decode(b)

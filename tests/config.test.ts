@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { RESTORE_PROGRAMS, SCROLLBACK_LINES } from "../src/config"
+import { RESTORE_PROGRAMS, SCROLLBACK_LINES } from "../src/core/config"
 
 describe("RESTORE_PROGRAMS (defaults)", () => {
 	test("is a non-empty set of lowercased program names", () => {
@@ -19,7 +19,7 @@ describe("SCROLLBACK_LINES (default)", () => {
 describe("ORDO_RESTORE_PROGRAMS override", () => {
 	test("parses a space/comma separated, case-insensitive override", async () => {
 		const proc = Bun.spawn(
-			["bun", "-e", "import('./src/config.ts').then(m=>process.stdout.write(JSON.stringify([...m.RESTORE_PROGRAMS])))"],
+			["bun", "-e", "import('./src/core/config.ts').then(m=>process.stdout.write(JSON.stringify([...m.RESTORE_PROGRAMS])))"],
 			{
 				env: { ...process.env, ORDO_RESTORE_PROGRAMS: "Foo, bar  BAZ" },
 				stdout: "pipe",
@@ -33,7 +33,7 @@ describe("ORDO_RESTORE_PROGRAMS override", () => {
 
 	test("empty override disables relaunch (empty set)", async () => {
 		const proc = Bun.spawn(
-			["bun", "-e", "import('./src/config.ts').then(m=>process.stdout.write(String(m.RESTORE_PROGRAMS.size)))"],
+			["bun", "-e", "import('./src/core/config.ts').then(m=>process.stdout.write(String(m.RESTORE_PROGRAMS.size)))"],
 			{ env: { ...process.env, ORDO_RESTORE_PROGRAMS: "" }, stdout: "pipe", stderr: "ignore" },
 		)
 		await proc.exited

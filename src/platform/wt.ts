@@ -21,7 +21,7 @@
 
 import { lstatSync } from "node:fs"
 import { join } from "node:path"
-import { WT_WINDOW } from "./config"
+import { WT_WINDOW } from "../core/config"
 
 export type Direction = "left" | "right" | "up" | "down"
 

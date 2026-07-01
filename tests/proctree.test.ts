@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import type { Subprocess } from "bun"
-import { foregroundProgram } from "../src/proctree"
+import { foregroundProgram } from "../src/platform/proctree"
 
 let child: Subprocess | undefined
 afterEach(() => {

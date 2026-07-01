@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { pickUniqueName, randomSoldier, ROMAN_SOLDIERS } from "../src/names"
+import { pickUniqueName, randomSoldier, ROMAN_SOLDIERS } from "../src/core/names"
 
 describe("randomSoldier", () => {
 	test("always returns a known soldier word", () => {

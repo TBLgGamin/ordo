@@ -20,8 +20,8 @@
  *   └──────┴───────┴──────┘
  */
 
-import { BORDER_THICKNESS, MIN_WIN_W, SELECT_BORDER_COLOR } from "./config"
-import { OverlayFrame } from "./overlay"
+import { BORDER_THICKNESS, MIN_WIN_W, SELECT_BORDER_COLOR } from "../core/config"
+import { OverlayFrame } from "../platform/overlay"
 import {
 	getForegroundWindow,
 	getWindowRect,
@@ -31,8 +31,8 @@ import {
 	type Rect,
 	setWindowHighlight,
 	setWindowRect,
-} from "./win32"
-import type { Direction } from "./wt"
+} from "../platform/win32"
+import type { Direction } from "../platform/wt"
 
 interface Satellite {
 	id: string

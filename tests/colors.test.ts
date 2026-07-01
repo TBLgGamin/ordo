@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { ansiFg, lightTint, PANE_FG, paletteColor } from "../src/colors"
+import { ansiFg, lightTint, PANE_FG, paletteColor } from "../src/core/colors"
 
 const HEX = /^#[0-9a-f]{6}$/
 

@@ -10,16 +10,16 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Socket } from "bun"
-import { BUN_EXE, DAEMON_PATH } from "./config"
+import { BUN_EXE, DAEMON_PATH } from "../core/config"
 import type {
 	ControlEvent,
 	ControlHello,
 	ControlRequest,
 	ControlResponse,
 	PaneState,
-} from "./daemonProtocol"
-import { encode, LineDecoder } from "./protocol"
-import { ordoDir } from "./session"
+} from "../core/daemonProtocol"
+import { encode, LineDecoder } from "../core/protocol"
+import { ordoDir } from "../core/session"
 
 interface DaemonInfo {
 	port: number

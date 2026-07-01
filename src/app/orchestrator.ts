@@ -7,7 +7,7 @@
  * process, so closing/reopening reattaches to the same live shell.
  */
 
-import { paletteColor } from "./colors"
+import { paletteColor } from "../core/colors"
 import {
 	ANIM_MS,
 	BUN_EXE,
@@ -18,21 +18,21 @@ import {
 	TILE_GAP,
 	TITLE_DEBOUNCE_MS,
 	TITLE_ENABLED,
-} from "./config"
-import { DaemonClient } from "./daemonClient"
-import type { ControlEvent } from "./daemonProtocol"
-import { LayoutManager } from "./layout"
-import { pickUniqueName } from "./names"
+} from "../core/config"
+import type { ControlEvent } from "../core/daemonProtocol"
+import { pickUniqueName } from "../core/names"
 import {
 	deleteSession,
 	generateSessionId,
 	loadSession,
 	type SessionState,
 	saveSession,
-} from "./session"
+} from "../core/session"
+import { DaemonClient } from "../daemon/daemonClient"
+import { findTerminalWindowByExactTitle, type Hwnd, type Rect } from "../platform/win32"
+import { type Direction, spawnTab, spawnWindow } from "../platform/wt"
+import { LayoutManager } from "./layout"
 import { disposeTitleModel, gatherActivity, generateTitle } from "./title"
-import { findTerminalWindowByExactTitle, type Hwnd, type Rect } from "./win32"
-import { type Direction, spawnTab, spawnWindow } from "./wt"
 
 /** Window title each satellite gets — its (unique) pane name, used to find its HWND. */
 function satelliteTitle(id: string): string {

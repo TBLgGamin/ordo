@@ -13,9 +13,9 @@
 
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import type { AttachClientMsg, AttachHello } from "./daemonProtocol"
-import { encode } from "./protocol"
-import { ordoDir } from "./session"
+import type { AttachClientMsg, AttachHello } from "../core/daemonProtocol"
+import { encode } from "../core/protocol"
+import { ordoDir } from "../core/session"
 
 function arg(flag: string): string | undefined {
 	const i = Bun.argv.indexOf(flag)

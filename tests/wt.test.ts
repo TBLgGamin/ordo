@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isDirection } from "../src/wt"
+import { isDirection } from "../src/platform/wt"
 
 describe("isDirection", () => {
 	test("accepts the four tiling directions", () => {

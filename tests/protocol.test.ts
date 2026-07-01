@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { type AgentMessage, encode, type HubMessage, LineDecoder } from "../src/protocol"
+import { type AgentMessage, encode, type HubMessage, LineDecoder } from "../src/core/protocol"
 
 describe("encode", () => {
 	test("produces a single newline-terminated JSON line", () => {

@@ -145,7 +145,7 @@ editing / history). The center window is a dashboard for spawning, tiling, and
 naming; it no longer sends commands.
 
 **Named panes.** Each pane is named after a Roman soldier type (`optio`,
-`signifer`, `decanus`, …) from a shared pool (`src/names.ts`), unique within the
+`signifer`, `decanus`, …) from a shared pool (`src/core/names.ts`), unique within the
 session.
 
 **Focused-window highlight.** The window you're currently in — any pane *or* the
@@ -313,26 +313,38 @@ it never disturbs the terminal you launched it from.
 ## Project layout
 
 ```
-src/index.ts          # entrypoint: window bootstrap + sessions-sidebar TUI + input
-src/orchestrator.ts   # high-level API: openPane(dir)/kill; talks to the daemon, owns tiling
-src/daemon.ts         # persistent windowless daemon: hosts every shell+ConPTY, IPC, capture
-src/client.ts         # thin per-pane process: pipes stdin/stdout to the daemon (no shell)
-src/daemonClient.ts   # orchestrator-side daemon RPC + hidden Start-Process spawn/discovery
-src/daemonProtocol.ts # daemon control + attach wire types
-src/layout.ts         # fixed-center geometry + zone tiling
-src/win32.ts          # user32.dll bindings (find/move/resize windows) via bun:ffi
-src/wt.ts             # typed wrapper around wt.exe (spawn windows/tabs/panes)
-src/colors.ts         # unique very-light pastel hues + tint helpers
-src/names.ts          # shared Roman-soldier name pool (sessions + panes)
-src/session.ts        # session JSON (id, title, layout) + paths under %APPDATA%\ordo
-src/title.ts          # local session titling: gather pane activity → Supra-Title-350M (node-llama-cpp)
-src/replay.ts         # reconstructs a pane's screen from its raw-VT capture (cold restore)
-src/vt.ts             # title-strip (OSC 0/1/2), startup-clear suppress, OSC 9;9 cwd, command capture
-src/proctree.ts       # foreground-program detection via Toolhelp snapshot (kernel32)
-src/protocol.ts       # newline-delimited JSON framing (encode / LineDecoder)
-src/config.ts         # paths, window target, shell, restore whitelist
-scripts/verify.ps1    # format + typecheck + tests (Stop hook)
-biome.json            # lint + format config
-tsconfig.json         # TypeScript config (Bun bundler mode)
-.claude/              # Claude Code hooks/settings
+src/index.ts               # entrypoint: CLI dispatch (--new/--restore/--sessions/--delete)
+src/cli/tui.ts             # sessions-sidebar TUI: widgets, actions, keybindings
+src/cli/format.ts          # sidebar styling + relative-time / truncate helpers
+src/cli/sessions.ts        # inline (non-TUI) --sessions printer
+src/app/orchestrator.ts    # high-level API: openPane(dir)/kill; talks to the daemon, owns tiling
+src/app/types.ts           # ManagedPane / OrchestratorEvent types + small helpers
+src/app/titler.ts          # debounced session-title (re)generation
+src/app/layout.ts          # fixed-center geometry manager + zone tiling
+src/app/geometry.ts        # pure zone/slot/clamp rect math
+src/app/animator.ts        # zone move/resize tween engine
+src/app/title.ts           # local session titling: gather pane activity → Supra-Title-350M (node-llama-cpp)
+src/daemon/daemon.ts       # persistent windowless daemon: TCP server, warm/cold restore, entry
+src/daemon/pane.ts         # one live pane: shell + ConPTY, ring buffer, attached clients
+src/daemon/capture.ts      # append-only raw-VT capture file with tail compaction
+src/daemon/client.ts       # thin per-pane process: pipes stdin/stdout to the daemon (no shell)
+src/daemon/daemonClient.ts # orchestrator-side daemon RPC + hidden Start-Process spawn/discovery
+src/daemon/replay.ts       # reconstructs a pane's screen from its raw-VT capture (cold restore)
+src/daemon/vt.ts           # title-strip (OSC 0/1/2), startup-clear suppress, OSC 9;9 cwd, command capture
+src/platform/win32.ts      # user32.dll bindings (find/move/resize windows) via bun:ffi
+src/platform/proctree.ts   # foreground-program detection via Toolhelp snapshot (kernel32)
+src/platform/overlay.ts    # click-through FFI windows drawing the focus border
+src/platform/wt.ts         # typed wrapper around wt.exe (spawn windows/tabs/panes)
+src/core/config.ts         # paths, window target, shell, restore whitelist
+src/core/session.ts        # session JSON (id, title, layout) + paths under %APPDATA%\ordo
+src/core/daemonProtocol.ts # daemon control + attach wire types
+src/core/protocol.ts       # newline-delimited JSON framing (encode / LineDecoder)
+src/core/names.ts          # shared Roman-soldier name pool (sessions + panes)
+src/core/colors.ts         # unique very-light pastel hues + tint helpers
+scripts/install.ps1        # one-shot installer: clone/setup, bun link, model download
+scripts/setup-model.ts     # pre-downloads the title model into %APPDATA%\ordo\models
+scripts/verify.ps1         # format + typecheck + tests (Stop hook)
+biome.json                 # lint + format config
+tsconfig.json              # TypeScript config (Bun bundler mode)
+.claude/                   # Claude Code hooks/settings
 ```

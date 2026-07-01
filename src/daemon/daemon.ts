@@ -28,7 +28,7 @@ import {
 } from "node:fs"
 import { dirname, join } from "node:path"
 import type { Socket, Subprocess, TCPSocketListener } from "bun"
-import { AGENT_SHELL, RESTORE_PROGRAMS, SCROLLBACK_LINES } from "./config"
+import { AGENT_SHELL, RESTORE_PROGRAMS, SCROLLBACK_LINES } from "../core/config"
 import type {
 	AttachClientMsg,
 	ControlEvent,
@@ -36,11 +36,11 @@ import type {
 	ControlResponse,
 	Hello,
 	PaneState,
-} from "./daemonProtocol"
-import { foregroundProgram } from "./proctree"
-import { encode, LineDecoder } from "./protocol"
+} from "../core/daemonProtocol"
+import { encode, LineDecoder } from "../core/protocol"
+import { ordoDir, scrollbackPath } from "../core/session"
+import { foregroundProgram } from "../platform/proctree"
 import { reconstructScreen } from "./replay"
-import { ordoDir, scrollbackPath } from "./session"
 import { CommandLineTracker, TitleStripper } from "./vt"
 
 const isPwsh = (shell: string) => /pwsh|powershell/i.test(shell)

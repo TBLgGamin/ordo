@@ -9,9 +9,9 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import type { Rect } from "../platform/win32"
+import type { Direction } from "../platform/wt"
 import { pickUniqueName } from "./names"
-import type { Rect } from "./win32"
-import type { Direction } from "./wt"
 
 export interface SatelliteState {
 	id: string
@@ -37,7 +37,7 @@ export interface SessionState {
 	id: string
 	/**
 	 * Human-friendly title generated from recent pane activity by the local
-	 * title model (see src/title.ts). Shown in the session browser above the id;
+	 * title model (see src/app/title.ts). Shown in the session browser above the id;
 	 * absent until generated, in which case the id is shown instead.
 	 */
 	title?: string

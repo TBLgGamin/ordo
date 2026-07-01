@@ -8,7 +8,7 @@
 import { join, resolve } from "node:path"
 
 /** Absolute path to this `src` directory (works regardless of cwd). */
-export const SRC_DIR = import.meta.dir
+export const SRC_DIR = resolve(import.meta.dir, "..")
 
 /** Project root (parent of `src`). Used as the cwd for the app's own window. */
 export const PROJECT_DIR = resolve(SRC_DIR, "..")
@@ -17,10 +17,10 @@ export const PROJECT_DIR = resolve(SRC_DIR, "..")
 export const ENTRY_PATH = resolve(SRC_DIR, "index.ts")
 
 /** Absolute path to the persistent session daemon entry point. */
-export const DAEMON_PATH = resolve(SRC_DIR, "daemon.ts")
+export const DAEMON_PATH = resolve(SRC_DIR, "daemon", "daemon.ts")
 
 /** Absolute path to the thin pane-client entry point that runs inside each pane. */
-export const CLIENT_PATH = resolve(SRC_DIR, "client.ts")
+export const CLIENT_PATH = resolve(SRC_DIR, "daemon", "client.ts")
 
 /** The Bun executable currently running us — reused to launch agents. */
 export const BUN_EXE = process.execPath
@@ -145,7 +145,7 @@ export const COLOR_MODE: ColorMode =
 		: "tab"
 
 // ---------------------------------------------------------------------------
-// Session-title model (src/title.ts) — generates a human title from recent pane
+// Session-title model (src/app/title.ts) — generates a human title from recent pane
 // activity using a tiny local GGUF model via node-llama-cpp.
 // ---------------------------------------------------------------------------
 

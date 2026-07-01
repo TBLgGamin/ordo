@@ -12,7 +12,8 @@ import {
 	type TextChunk,
 	TextRenderable,
 } from "@opentui/core"
-import { ansiFg } from "./colors"
+import { Orchestrator } from "./app/orchestrator"
+import { ansiFg } from "./core/colors"
 import {
 	BUN_EXE,
 	DELETE_NAME,
@@ -23,10 +24,9 @@ import {
 	RESTORE_NAME,
 	SELECT_BORDER_COLOR,
 	SESSIONS_MODE,
-} from "./config"
-import { Orchestrator } from "./orchestrator"
-import { deleteSession, listSessionNames, loadSession, type SessionState } from "./session"
-import { openSelfWindow } from "./wt"
+} from "./core/config"
+import { deleteSession, listSessionNames, loadSession, type SessionState } from "./core/session"
+import { openSelfWindow } from "./platform/wt"
 
 /** The one UI accent — the user's light purple. The only ink that isn't a pane color. */
 const PURPLE = SELECT_BORDER_COLOR

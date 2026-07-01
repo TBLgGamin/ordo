@@ -10,9 +10,9 @@ import type { Subprocess } from "bun"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { DaemonClient } from "../src/daemonClient"
-import type { AttachClientMsg, AttachHello } from "../src/daemonProtocol"
-import { encode } from "../src/protocol"
+import { DaemonClient } from "../src/daemon/daemonClient"
+import type { AttachClientMsg, AttachHello } from "../src/core/daemonProtocol"
+import { encode } from "../src/core/protocol"
 
 const enc = (o: object) => encode(o)
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -29,7 +29,7 @@ beforeAll(async () => {
 	tmp = mkdtempSync(join(tmpdir(), "ordo-daemon-"))
 	process.env.APPDATA = tmp
 	// Spawn the daemon directly (test-controlled lifecycle, not Start-Process).
-	daemonProc = Bun.spawn(["bun", "src/daemon.ts"], {
+	daemonProc = Bun.spawn(["bun", "src/daemon/daemon.ts"], {
 		env: { ...process.env, APPDATA: tmp },
 		stdin: "ignore",
 		stdout: "ignore",
