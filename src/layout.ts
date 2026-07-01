@@ -220,6 +220,11 @@ export class LayoutManager {
 		}
 	}
 
+	/** Force every populated zone to re-tile cleanly against the current center. */
+	relayout(): void {
+		this.retileAll(true)
+	}
+
 	/** Re-tile every zone — used when the center moves so satellites follow it. */
 	private retileAll(instant: boolean): void {
 		for (const dir of ["left", "right", "up", "down"] as Direction[]) {
@@ -296,6 +301,16 @@ export class LayoutManager {
 		if (!s) return
 		this.sats.delete(id)
 		this.retile(s.dir)
+	}
+
+	/**
+	 * Forget every satellite without re-tiling — used when closing a session so the
+	 * follow-the-center watcher stops touching windows that are going away.
+	 */
+	clearSatellites(): void {
+		for (const cancel of this.anims.values()) cancel()
+		this.anims.clear()
+		this.sats.clear()
 	}
 
 	has(id: string): boolean {

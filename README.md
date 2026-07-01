@@ -9,34 +9,74 @@ A terminal UI application built with [OpenTUI](https://github.com/sst/opentui), 
 - **Language:** TypeScript (strict)
 - **TUI:** `@opentui/core`
 - **Terminal restore:** `@xterm/headless` + `@xterm/addon-serialize` (pure JS)
+- **Session titling:** `node-llama-cpp` running a tiny local GGUF model
 - **Lint/Format:** Biome
 
 ## Getting started
 
 ```bash
 bun install        # install deps
-bun run dev        # run the app with hot reload
-bun run start      # run the app once
+bun link           # install the `ordo` command globally (symlinked to this source)
 ```
 
-> The TUI needs a real terminal (TTY). Run it from your terminal, not from a non-interactive shell.
+`bun link` puts an `ordo` executable in Bun's global bin dir (`~/.bun/bin`,
+already on PATH if Bun is installed normally). Because it's a symlink to this
+source, edits take effect immediately — no reinstall.
+
+Then, from anywhere:
+
+```powershell
+ordo                      # open the command center (a launcher; no session yet)
+ordo --new                # open it and start a new session immediately
+ordo --restore <id>       # open it and restore a saved session
+ordo --sessions           # list saved sessions (inline, no window)
+ordo --delete <id>        # delete a saved session + its scrollback
+```
+
+> The TUI needs a real terminal (TTY). Run it from your terminal, not from a
+> non-interactive shell. `ordo` opens its own dedicated Windows Terminal window
+> and captures it as the fixed center.
 
 ## Scripts
 
-| Script              | Description                                  |
-| ------------------- | -------------------------------------------- |
-| `bun run dev`       | Run with `--watch` hot reload                |
-| `bun run start`     | Run the app                                  |
-| `bun run typecheck` | Type-check with `tsc --noEmit`               |
-| `bun run lint`      | Lint with Biome                              |
-| `bun run format`    | Format with Biome (writes)                   |
-| `bun run check`     | Lint + format + organize imports (writes)    |
+For working on ordo itself:
 
-## Controls
+| Script              | Description                                       |
+| ------------------- | ------------------------------------------------- |
+| `bun run dev`       | Run the TUI in-place with `--watch` hot reload    |
+| `bun run typecheck` | Type-check with `tsc --noEmit`                    |
+| `bun run lint`      | Lint with Biome                                   |
+| `bun run format`    | Format with Biome (writes)                        |
+| `bun run check`     | Lint + format + organize imports (writes)         |
 
-- `space` — increment the counter
-- `r` — reset
-- `q` / `Ctrl+C` — quit
+## The command window
+
+Running `ordo` opens the **command center** — a launcher that does *not* start a
+session on its own. Its layout: a purple-outlined **sessions sidebar** on the
+left (a live, scrollable browser of every saved session, drawn with OpenTUI), an
+**input area** filling the space to its right (where you type a session id), and
+one continuous **command bar** linking them along the bottom. Each session shows
+its generated title, id, pane count and age; each pane line keeps its own pane
+color (the only ink that isn't the accent purple), and the running session is
+flagged with a `●`. `↑`/`↓` (and `PgUp`/`PgDn`) scroll the list.
+
+There's no choosing left/right/up/down — panes are auto-placed. Drive it with
+these commands, by key or by clicking the matching label in the bottom bar:
+
+| key / button    | what it does                                                        |
+| --------------- | ------------------------------------------------------------------- |
+| **`n`** new     | start a new session (replaces the current one in this window)       |
+| **`a`** add pane| spawn one more pane, auto-placed: right → left → up → down → repeat  |
+| **`s`** open    | open a previous session — type its id + Enter, or click it in the sidebar |
+| **`c`** close   | close the current session (its shells stay alive for later)         |
+| **`d`** delete  | delete a saved session — type its id + Enter, or click it (in delete mode) |
+| `q` / `Ctrl+C`  | quit (panes stay alive in the daemon)                               |
+
+There's **one session per window**: opening or starting a session while one is
+already open closes the old one and brings up the new one in place. `c` drops
+back to the launcher without deleting anything. Type directly in each **pane**
+window to run commands there. The focused window (a pane *or* the command
+window) gets the lavender border + title bar.
 
 ## Automation
 
@@ -75,25 +115,20 @@ The app drives **Windows Terminal** to spawn satellite windows tiled around a
 ### Fixed center, tiled satellites
 
 The center is the app's own WT window, captured at startup, resized + centered
-once, then never moved. Each direction opens a satellite window in that zone;
-adding more divides the zone and the windows **slide/resize (animated)** to fit.
+once, then never moved. Pressing **`a`** places the next satellite in the next
+zone — cycling **right → left → up → down → right → …** — and adding more divides
+a zone so its windows **slide/resize (animated)** to fit. You don't pick the
+side; ordo cycles through them for you.
 
 ```
 ┌──────┬───────┬──────┐   left/right : full-height columns, vertical stack
 │      │  up   │      │   up/down    : center-width strips above/below center
 │ left ├───────┤right │   center     : fixed, in the middle
-│      │CENTER │      │
+│      │CENTER │      │   add order  : right → left → up → down → repeat
 │      ├───────┤      │
 │      │ down  │      │
 └──────┴───────┴──────┘
 ```
-
-| command | result                               |
-| ------- | ------------------------------------ |
-| `right` | stack a window in the right column   |
-| `left`  | stack a window in the left column    |
-| `up`    | place a window above the center      |
-| `down`  | place a window below the center      |
 
 **Why vertical stacking?** Windows Terminal refuses to make a window narrower
 than ~476px, so side-by-side tiles would overlap as they got thin. Splitting by
@@ -127,8 +162,11 @@ text via OSC 10), `both`, or `off`. The session list colors each pane name with
 its own pastel too.
 
 **Persistent shells.** Pane shells don't live in the pane windows — they live in
-a background **daemon** (see below). Closing a satellite window (or the whole
-app) just detaches; the shell keeps running. Reopening re-attaches to it.
+a background **daemon** (see below). Closing the **command window** (or switching
+sessions) just *detaches* every pane — the shells keep running for a later
+restore. Closing a **single pane's window**, by contrast, **permanently removes
+that pane**: the daemon kills its shell, deletes its scrollback, and the
+orchestrator drops it from the session (the remaining panes re-tile to fill in).
 
 ### Sessions (save / restore) — the daemon model
 
@@ -138,27 +176,34 @@ closing** (it's launched via `Start-Process -WindowStyle Hidden`, so Bun's
 inability to detach doesn't matter). The pane windows run a **thin client** that
 just pipes stdin/stdout to the daemon. So:
 
-- **Close a window / quit the app → the shell stays alive** in the daemon.
+- **Close the command window / switch sessions → the shells stay alive** in the
+  daemon (closing a single *pane* window instead removes that pane for good).
 - **Restore → re-attach to the *same live shell***: real running processes, real
   cwd, the real scrollback — **nothing is reconstructed**, because nothing died.
 
-Every run gets a unique **session name** from Roman-era soldier types
+Every run gets a unique **session id** from Roman-era soldier types
 (`centurion`, `optio`, …; kebab-compounded on collision), shown as the center
-window's tab title. Layout + per-pane state save continuously to:
+window's tab title. The id is the stable **resume key** (`--restore`/`--delete`).
+A separate, human-friendly **title** is generated from recent activity (see
+[Auto-titled sessions](#auto-titled-sessions)). Layout + per-pane state save
+continuously to:
 
 ```
-%APPDATA%\ordo\sessions\<name>.json      # center/zone rects, colors, cwd, last command
-%APPDATA%\ordo\sessions\<name>.scrollback\<pane>.log   # raw VT capture (for cold restore)
+%APPDATA%\ordo\sessions\<id>.json        # id, title, center/zone rects, colors, cwd, last command
+%APPDATA%\ordo\sessions\<id>.scrollback\<pane>.log   # raw VT capture (for cold restore)
 %APPDATA%\ordo\daemon.json               # daemon discovery: { port, token, pid }
+%APPDATA%\ordo\models\*.gguf             # cached title model (downloaded on first use)
 ```
 
-Restore with:
+Restore with (the id, not the title):
 
 ```powershell
-pwsh -File scripts/launch.ps1 --restore <name>
+ordo --restore <id>
 ```
 
-It re-opens the center and every pane at their **exact saved size/position** and:
+It re-opens the center at its saved position and **re-tiles every pane cleanly by
+its saved zone** (right/left/up/down) around it — the same auto-placement used
+live, so the layout is always consistent and never overlaps. Then:
 
 - **Warm restore** (daemon still running — you closed windows but didn't reboot):
   re-attaches to the live shell. The daemon replays its in-memory ring buffer (the
@@ -176,50 +221,74 @@ process cwd, so this is the reliable source). The last command is captured from
 the keystroke stream (decoding Win32 Input Mode, which is how a ConPTY delivers
 input).
 
+### Auto-titled sessions
+
+Beyond the soldier-name **id**, each session gets a human-friendly **title**
+written by a tiny local model. As you work, ordo reads the recent commands +
+output across **all** the session's panes (from their scrollback captures,
+ANSI-stripped) and feeds them to [SupraLabs' **Supra-Title-350M**][supra] — an
+~230 MB LFM2 GGUF trained purely to write short conversation titles — run
+in-process via [`node-llama-cpp`][nlc]. The result (e.g. *"Fixing Sidebar
+Layout"*) becomes the session's heading in the browser, with the id beneath it.
+
+- **Automatic & debounced.** Titles regenerate ~15 s after command activity
+  settles (`ORDO_TITLE_DEBOUNCE`), and once after a restore. No manual step.
+- **Self-contained.** The model is downloaded on first use to
+  `%APPDATA%\ordo\models` (silently — no console spam) and cached thereafter.
+- **Best-effort.** If the model can't load (offline, disabled, unsupported),
+  titling turns itself off and the **id** is shown instead — the app never
+  blocks or crashes on it. Disable entirely with `ORDO_TITLE=0`.
+
+[supra]: https://huggingface.co/SupraLabs/Supra-Title-350M-exp-GGUF
+[nlc]: https://node-llama-cpp.withcat.ai
+
 #### Listing sessions
 
-```bash
-bun run sessions                                   # list sessions
-pwsh -File scripts/launch.ps1 --sessions           # same, inline
-pwsh -File scripts/launch.ps1 --delete <name>      # delete a session + its scrollback
+```powershell
+ordo --sessions              # list sessions (inline, no new window)
+ordo --delete <id>           # delete a session + its scrollback
 ```
 
-`bun run sessions` prints a small tree of every saved session — its panes
-(colored with their pane color) and the last command sent to each — straight
-into the current terminal (no new window):
+`ordo --sessions` prints a small tree of every saved session — its generated
+title (with the id beneath), panes (colored with their pane color) and the last
+command sent to each — straight into the current terminal (no new window):
 
 ```
 ordo sessions (2)
 
+Running Dev Server
 centurion-optio  2 panes · 3m ago
   ├─ optio          right › npm run dev
   └─ signifer       down  › Get-Process
-  resume → pwsh -File scripts\launch.ps1 --restore centurion-optio
+  resume → ordo --restore centurion-optio
 
+Checking Git Status
 legionary        1 pane · 2h ago
   └─ decanus        left  › git status
-  resume → pwsh -File scripts\launch.ps1 --restore legionary
+  resume → ordo --restore legionary
 ```
 
 ### Try it
 
 ```bash
-bun run start            # then type: right, left, up, down
-                         #            send pane1 Get-Date
-                         #            all  echo hi
-                         #            kill pane1
+ordo                     # opens the command center (launcher)
+                         # then press: n  (new session — spawns the first pane)
+                         #             a  (add another pane; repeat to tile more)
+                         #             s  (open a previous session by id, or click one)
+                         #             c  (close the current session)
+                         #             d  (delete a saved session by id, or click one)
+                         #             q  (quit)
 ```
 
-The center is captured from the **foreground** WT window at startup, so just run
-it in the window you want fixed. `scripts/launch.ps1` opens a dedicated named
-window first if you prefer.
+`ordo` opens its own dedicated WT window and captures it as the fixed center, so
+it never disturbs the terminal you launched it from.
 
 ### Configuration (env vars)
 
 | Variable                   | Default       | Purpose                                   |
 | -------------------------- | ------------- | ----------------------------------------- |
-| `ORDO_CENTER_W`   | `0.36`        | Center width as a fraction of screen      |
-| `ORDO_CENTER_H`   | `0.38`        | Center height as a fraction of screen     |
+| `ORDO_CENTER_W`   | `0.40`        | Center width as a fraction of screen      |
+| `ORDO_CENTER_H`   | `0.50`        | Center height as a fraction of screen     |
 | `ORDO_GAP`        | `2`           | Pixel gap between windows                  |
 | `ORDO_MIN_W`      | `480`         | Min window width (WT's floor is ~476)     |
 | `ORDO_ANIM_MS`    | `180`         | Slide/resize animation duration (0 = off) |
@@ -231,6 +300,10 @@ window first if you prefer.
 | `ORDO_SHELL`      | `pwsh`        | Shell each agent drives                   |
 | `ORDO_RESTORE_PROGRAMS` | `vim nvim … claude …` | Programs re-launched on cold restore (empty disables) |
 | `ORDO_SCROLLBACK` | `1000`        | Scrollback lines reconstructed on cold restore |
+| `ORDO_TITLE`      | `1`           | Auto session titling (`0` disables it entirely) |
+| `ORDO_TITLE_MODEL`| Supra-Title-350M Q4 | Title model URI/path (any `node-llama-cpp` model URI) |
+| `ORDO_TITLE_DEBOUNCE` | `15000`   | Delay (ms) after activity settles before retitling |
+| `ORDO_MODELS_DIR` | `%APPDATA%\ordo\models` | Where the title model GGUF is cached |
 
 > Windows-only: the tiling uses `user32.dll` (`EnumWindows`, `SetWindowPos`,
 > `GetMonitorInfo`) and foreground detection uses `kernel32.dll` (Toolhelp
@@ -240,7 +313,7 @@ window first if you prefer.
 ## Project layout
 
 ```
-src/index.ts          # TUI front-end (command bar + window/log view)
+src/index.ts          # entrypoint: window bootstrap + sessions-sidebar TUI + input
 src/orchestrator.ts   # high-level API: openPane(dir)/kill; talks to the daemon, owns tiling
 src/daemon.ts         # persistent windowless daemon: hosts every shell+ConPTY, IPC, capture
 src/client.ts         # thin per-pane process: pipes stdin/stdout to the daemon (no shell)
@@ -251,13 +324,13 @@ src/win32.ts          # user32.dll bindings (find/move/resize windows) via bun:f
 src/wt.ts             # typed wrapper around wt.exe (spawn windows/tabs/panes)
 src/colors.ts         # unique very-light pastel hues + tint helpers
 src/names.ts          # shared Roman-soldier name pool (sessions + panes)
-src/session.ts        # session JSON + paths under %APPDATA%\ordo
+src/session.ts        # session JSON (id, title, layout) + paths under %APPDATA%\ordo
+src/title.ts          # local session titling: gather pane activity → Supra-Title-350M (node-llama-cpp)
 src/replay.ts         # reconstructs a pane's screen from its raw-VT capture (cold restore)
 src/vt.ts             # title-strip (OSC 0/1/2), startup-clear suppress, OSC 9;9 cwd, command capture
 src/proctree.ts       # foreground-program detection via Toolhelp snapshot (kernel32)
 src/protocol.ts       # newline-delimited JSON framing (encode / LineDecoder)
 src/config.ts         # paths, window target, shell, restore whitelist
-scripts/launch.ps1    # launch the app in a named WT window
 scripts/verify.ps1    # format + typecheck + tests (Stop hook)
 biome.json            # lint + format config
 tsconfig.json         # TypeScript config (Bun bundler mode)

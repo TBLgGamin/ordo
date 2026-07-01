@@ -3,13 +3,14 @@
 	"module": "src/index.ts",
 	"type": "module",
 	"private": true,
+	"bin": {
+		"ordo": "src/index.ts"
+	},
 	"engines": {
 		"bun": ">=1.3.14"
 	},
 	"scripts": {
-		"dev": "bun run --watch src/index.ts",
-		"start": "bun run src/index.ts",
-		"sessions": "bun run src/index.ts --sessions",
+		"dev": "bun run --watch src/index.ts --in-window",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome lint .",
@@ -27,6 +28,10 @@
 	"dependencies": {
 		"@opentui/core": "^0.4.2",
 		"@xterm/addon-serialize": "^0.14.0",
-		"@xterm/headless": "^6.0.0"
-	}
+		"@xterm/headless": "^6.0.0",
+		"node-llama-cpp": "^3.19.0"
+	},
+	"trustedDependencies": [
+		"node-llama-cpp"
+	]
 }

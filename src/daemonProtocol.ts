@@ -78,6 +78,14 @@ export interface PaneState {
 export type ControlEvent =
 	| { event: "pane"; session: string; state: PaneState }
 	| { event: "paneExited"; session: string; pane: string }
+	/**
+	 * The user closed a pane's window (its last client detached while the
+	 * orchestrator was still connected). The daemon has killed the shell and
+	 * deleted the pane's scrollback; the orchestrator de-registers it from the
+	 * session. Distinct from `paneExited` (shell quit) and from a session detach
+	 * (window/app closed — shells kept for restore).
+	 */
+	| { event: "paneClosed"; session: string; pane: string }
 
 /** Pane client → daemon frames (after the attach hello). */
 export type AttachClientMsg =

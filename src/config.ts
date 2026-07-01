@@ -5,10 +5,16 @@
  * lives here so there is a single source of truth.
  */
 
-import { resolve } from "node:path"
+import { join, resolve } from "node:path"
 
 /** Absolute path to this `src` directory (works regardless of cwd). */
 export const SRC_DIR = import.meta.dir
+
+/** Project root (parent of `src`). Used as the cwd for the app's own window. */
+export const PROJECT_DIR = resolve(SRC_DIR, "..")
+
+/** Absolute path to this entry point — re-run to relaunch the app in a new window. */
+export const ENTRY_PATH = resolve(SRC_DIR, "index.ts")
 
 /** Absolute path to the persistent session daemon entry point. */
 export const DAEMON_PATH = resolve(SRC_DIR, "daemon.ts")
@@ -30,13 +36,12 @@ function argValue(flag: string): string | undefined {
  *
  * - `"0"` / `"last"` → the most-recently-used window (usually the one the app
  *   is running in). This is the default and needs no special launch.
- * - a name (e.g. `"ordo"`) → a specific named window. Launch the app
- *   inside that named window (see scripts/launch.ps1) for rock-solid attachment.
+ * - a name (e.g. `"ordo"`) → a specific named window, for rock-solid attachment.
  * - `"new"` / `"-1"` → always a brand new window.
  *
- * Resolution order: `--window <name>` CLI arg → ORDO_WT_WINDOW env →
- * `"0"`. The CLI arg is used by launch.ps1 because env vars don't reliably reach
- * a pane spawned by an already-running Windows Terminal server.
+ * Resolution order: `--window <name>` CLI arg → ORDO_WT_WINDOW env → `"0"`. The
+ * CLI arg exists because env vars don't reliably reach a pane spawned by an
+ * already-running Windows Terminal server.
  */
 export const WT_WINDOW = argValue("--window") ?? process.env.ORDO_WT_WINDOW ?? "0"
 
@@ -46,8 +51,19 @@ export const RESTORE_NAME = argValue("--restore")
 /** `--sessions` lists saved sessions instead of starting one. */
 export const SESSIONS_MODE = Bun.argv.includes("--sessions")
 
+/**
+ * Internal flag set on the instance already running inside its own freshly
+ * spawned Windows Terminal window. The top-level `ordo` command re-spawns itself
+ * into a clean window (so it can capture that window as the fixed center) and
+ * passes this flag to the child, which then skips the re-spawn and starts the TUI.
+ */
+export const IN_WINDOW = Bun.argv.includes("--in-window")
+
 /** `--delete <name>` deletes a saved session (and its scrollback), then exits. */
 export const DELETE_NAME = argValue("--delete")
+
+/** `--new` starts a fresh session immediately on launch (skips the launcher state). */
+export const NEW_SESSION = Bun.argv.includes("--new")
 
 /** The shell each agent drives inside its pane. Override with ORDO_SHELL. */
 export const AGENT_SHELL = process.env.ORDO_SHELL ?? "pwsh"
@@ -88,10 +104,11 @@ function numEnv(name: string, def: number): number {
  * The center is resized + centered to this on startup. Override with
  * ORDO_CENTER_W / ORDO_CENTER_H (0..1).
  */
-export const CENTER_W_FRAC = numEnv("ORDO_CENTER_W", 0.36)
-// ≤0.4 makes the top/bottom strips ≥¾ of the center height; 0.38 leaves margin
-// for the gap + rounding so every tiled pane clears the ¾-center-height minimum.
-export const CENTER_H_FRAC = numEnv("ORDO_CENTER_H", 0.38)
+// The command window is now a roomy sessions browser — wide and tall. Width is
+// capped in layout.centerWindow so each side column stays ≥ the WT minimum width
+// (~480px); on a typical 1080p screen 0.48 leaves the side columns ~500px each.
+export const CENTER_W_FRAC = numEnv("ORDO_CENTER_W", 0.48)
+export const CENTER_H_FRAC = numEnv("ORDO_CENTER_H", 0.5)
 
 /** Pixel gap between tiled windows (and around the center). Override with ORDO_GAP. */
 export const TILE_GAP = numEnv("ORDO_GAP", 2)
@@ -126,3 +143,32 @@ export const COLOR_MODE: ColorMode =
 	colorEnv === "tab" || colorEnv === "bg" || colorEnv === "both" || colorEnv === "off"
 		? colorEnv
 		: "tab"
+
+// ---------------------------------------------------------------------------
+// Session-title model (src/title.ts) — generates a human title from recent pane
+// activity using a tiny local GGUF model via node-llama-cpp.
+// ---------------------------------------------------------------------------
+
+/** Base ordo data dir, %APPDATA%\ordo (duplicated from session.ts to avoid a cycle). */
+const ORDO_DATA_DIR = join(
+	process.env.APPDATA ?? process.env.LOCALAPPDATA ?? process.env.HOME ?? ".",
+	"ordo",
+)
+
+/** Where the title model GGUF is cached/downloaded. Override with ORDO_MODELS_DIR. */
+export const MODELS_DIR = process.env.ORDO_MODELS_DIR ?? join(ORDO_DATA_DIR, "models")
+
+/**
+ * The GGUF model used to title sessions — SupraLabs' Supra-Title-350M (LFM2),
+ * a tiny model trained specifically to write short conversation titles. Override
+ * with ORDO_TITLE_MODEL (any node-llama-cpp model URI or local path).
+ */
+export const TITLE_MODEL_URI =
+	process.env.ORDO_TITLE_MODEL ??
+	"hf:SupraLabs/Supra-Title-350M-exp-GGUF/LiquidAI_LFM2.5-350M-Base_1781204855.Q4_K_M.gguf"
+
+/** Title generation is on by default; set ORDO_TITLE=0 to disable it entirely. */
+export const TITLE_ENABLED = (process.env.ORDO_TITLE ?? "1") !== "0"
+
+/** Debounce (ms) after pane activity settles before regenerating the title. */
+export const TITLE_DEBOUNCE_MS = numEnv("ORDO_TITLE_DEBOUNCE", 15000)

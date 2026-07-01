@@ -101,7 +101,7 @@ describe("daemon", () => {
 		await dc.killPane("s1", "optio")
 	}, 15000)
 
-	test("warm reattach: detach then re-attach to the SAME shell with replayed output", async () => {
+	test("warm restore: detachSession then re-attach to the SAME shell with replayed output", async () => {
 		await dc.createPane("s2", "decanus", { cwd: process.cwd() })
 
 		const a1 = attach("s2", "decanus")
@@ -110,7 +110,10 @@ describe("daemon", () => {
 		a1.type("echo RING_MARK_77\r")
 		await delay(1200)
 		expect(a1.output()).toContain("RING_MARK_77")
-		a1.close() // detach (window "closed") — shell stays alive
+		// Detach the whole session like the app/command window closing: the daemon
+		// closes the client window but KEEPS the shell alive for a later restore.
+		// (Closing a single pane window instead would purge it — see the next test.)
+		await dc.detachSession("s2")
 
 		await delay(600)
 		const a2 = attach("s2", "decanus")
@@ -122,13 +125,35 @@ describe("daemon", () => {
 		a2.type("echo SECOND_88\r")
 		await delay(1200)
 		expect(a2.output()).toContain("SECOND_88")
-		a2.close()
+		await dc.detachSession("s2") // keep the shell alive for the state check below
 
 		const st = await dc.getState("s2")
 		expect(st.panes[0]?.live).toBe(true)
 		expect(st.panes[0]?.lastCommand).toBe("echo SECOND_88")
 		await dc.killPane("s2", "decanus")
 	}, 20000)
+
+	test("closing a pane's window purges it: pane de-registered + scrollback deleted", async () => {
+		const owner = new DaemonClient()
+		await owner.ensure("s5")
+		await owner.createPane("s5", "miles", { cwd: process.cwd() })
+		const cap = join(tmp, "ordo", "sessions", "s5.scrollback", "miles.log")
+
+		const a = attach("s5", "miles")
+		await a.ready
+		await delay(2000) // shell comes up; its capture file exists
+		expect(existsSync(cap)).toBe(true)
+
+		// Close ONLY this pane's window (single client drop, owner still connected) →
+		// the daemon permanently purges the pane: kills the shell, deletes scrollback.
+		a.close()
+		await delay(1200)
+
+		const st = await owner.getState("s5")
+		expect(st.panes.length).toBe(0) // pane de-registered
+		expect(existsSync(cap)).toBe(false) // its scrollback was deleted
+		owner.stop()
+	}, 15000)
 
 	test("killPane removes the pane", async () => {
 		await dc.createPane("s3", "velite", { cwd: process.cwd() })

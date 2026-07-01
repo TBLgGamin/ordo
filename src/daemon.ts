@@ -22,6 +22,7 @@ import {
 	mkdirSync,
 	openSync,
 	readFileSync,
+	rmSync,
 	writeFileSync,
 	writeSync,
 } from "node:fs"
@@ -120,6 +121,10 @@ class Pane {
 	private static readonly RING_MAX = 1024 * 1024
 	private fgTimer?: ReturnType<typeof setInterval>
 	private lastFg: string | null | undefined
+	/** True while detachAll() is closing windows on purpose (don't treat as a user close). */
+	private detaching = false
+	/** Set when the user closed this pane's window → kill + delete its scrollback. */
+	private purged = false
 	readonly state: PaneState
 
 	constructor(
@@ -127,7 +132,7 @@ class Pane {
 		readonly pane: string,
 		opts: PaneOpts,
 		private readonly onEvent: (e: ControlEvent) => void,
-		private readonly onExit: () => void,
+		private readonly onExit: (purged: boolean) => void,
 	) {
 		const shell = opts.shell ?? AGENT_SHELL
 		const cwd = opts.cwd
@@ -225,6 +230,9 @@ class Pane {
 
 	/** Attach a client: replay the ring buffer, then stream live output. */
 	attach(sock: Socket<SockState>, cols: number, rows: number): void {
+		// A fresh attach (e.g. a restore) clears any prior "detaching" intent so a
+		// later genuine window-close is recognized as a user close.
+		this.detaching = false
 		for (const chunk of this.ring) sock.write(chunk)
 		this.clients.add(sock)
 		this.resize(cols, rows)
@@ -232,10 +240,18 @@ class Pane {
 
 	detach(sock: Socket<SockState>): void {
 		this.clients.delete(sock)
+		// The user closed this pane's window (its last client dropped, and we weren't
+		// asked to detach the whole session) → permanently remove the pane: kill the
+		// shell and delete its scrollback (handled in dispose()).
+		if (!this.detaching && this.clients.size === 0 && this.state.live) {
+			this.purged = true
+			this.kill()
+		}
 	}
 
 	/** Close every attached client (their windows), but keep the shell alive. */
 	detachAll(): void {
+		this.detaching = true
 		for (const c of this.clients) {
 			// terminate(), not end(): end() half-closes and the client window lingers
 			// until it also closes; terminate() forces it shut immediately.
@@ -281,6 +297,13 @@ class Pane {
 		this.state.live = false
 		if (this.fgTimer) clearInterval(this.fgTimer)
 		this.writer?.close()
+		// User-closed pane: drop its scrollback capture now that the writer's handle
+		// is released (so the file isn't locked on Windows).
+		if (this.purged) {
+			try {
+				rmSync(scrollbackPath(this.session, this.pane), { force: true })
+			} catch {}
+		}
 		try {
 			this.term.close()
 		} catch {}
@@ -295,7 +318,7 @@ class Pane {
 			}
 		}
 		this.clients.clear()
-		this.onExit()
+		this.onExit(this.purged)
 	}
 }
 
@@ -403,9 +426,15 @@ class Daemon {
 							relaunch: cold ? req.relaunch : undefined,
 						},
 						(e) => this.emit(e),
-						() => {
+						(purged) => {
 							this.panes.delete(k)
-							this.emit({ event: "paneExited", session: req.session, pane: req.pane })
+							// A purged pane (user closed its window) reports paneClosed so the
+							// orchestrator de-registers it; a plain shell exit reports paneExited.
+							this.emit({
+								event: purged ? "paneClosed" : "paneExited",
+								session: req.session,
+								pane: req.pane,
+							})
 						},
 					)
 					this.panes.set(k, pane)

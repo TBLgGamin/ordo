@@ -30,7 +30,17 @@ export interface SatelliteState {
 }
 
 export interface SessionState {
-	name: string
+	/**
+	 * Stable unique identifier (a Roman-soldier name). This is the resume key —
+	 * file names, `--restore`/`--delete`, and daemon session keys all use it.
+	 */
+	id: string
+	/**
+	 * Human-friendly title generated from recent pane activity by the local
+	 * title model (see src/title.ts). Shown in the session browser above the id;
+	 * absent until generated, in which case the id is shown instead.
+	 */
+	title?: string
 	updatedAt: string
 	center: Rect
 	satellites: SatelliteState[]
@@ -65,11 +75,20 @@ export function scrollbackPath(sessionName: string, paneId: string): string {
 	return join(scrollbackDir(sessionName), `${paneId}.log`)
 }
 
-/** Delete a session and its scrollback. Returns true if the session existed. */
+/**
+ * Delete a session and its scrollback. Returns true if the session existed.
+ * Each removal is best-effort: if the daemon still holds a capture file open
+ * (deleting a live session), the JSON is still removed so the session disappears
+ * from listings, and the scrollback is cleaned up when those handles close.
+ */
 export function deleteSession(name: string): boolean {
 	const existed = existsSync(sessionPath(name))
-	rmSync(sessionPath(name), { force: true })
-	rmSync(scrollbackDir(name), { recursive: true, force: true })
+	try {
+		rmSync(sessionPath(name), { force: true })
+	} catch {}
+	try {
+		rmSync(scrollbackDir(name), { recursive: true, force: true })
+	} catch {}
 	return existed
 }
 
@@ -96,10 +115,10 @@ export function loadSession(name: string): SessionState | null {
 }
 
 export function saveSession(state: SessionState): void {
-	writeFileSync(sessionPath(state.name), JSON.stringify(state, null, 2))
+	writeFileSync(sessionPath(state.id), JSON.stringify(state, null, 2))
 }
 
-/** A unique session name (not colliding with any saved session). */
-export function generateSessionName(): string {
+/** A unique session id (a soldier name not colliding with any saved session). */
+export function generateSessionId(): string {
 	return pickUniqueName(new Set(listSessionNames()))
 }

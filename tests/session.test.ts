@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
 	deleteSession,
-	generateSessionName,
+	generateSessionId,
 	listSessionNames,
 	loadSession,
 	saveSession,
@@ -31,8 +31,8 @@ afterAll(() => {
 	rmSync(tmp, { recursive: true, force: true })
 })
 
-const sample = (name: string): SessionState => ({
-	name,
+const sample = (id: string): SessionState => ({
+	id,
 	updatedAt: new Date().toISOString(),
 	center: { x: 10, y: 20, w: 800, h: 600 },
 	satellites: [
@@ -101,10 +101,18 @@ describe("delete", () => {
 	})
 })
 
-describe("generateSessionName", () => {
+describe("generateSessionId", () => {
 	test("does not collide with existing sessions", () => {
 		saveSession(sample("legionary"))
-		const name = generateSessionName()
-		expect(listSessionNames()).not.toContain(name)
+		const id = generateSessionId()
+		expect(listSessionNames()).not.toContain(id)
+	})
+})
+
+describe("title", () => {
+	test("round-trips the optional title field", () => {
+		const state: SessionState = { ...sample("aquilifer"), title: "Fixing The Sidebar" }
+		saveSession(state)
+		expect(loadSession("aquilifer")?.title).toBe("Fixing The Sidebar")
 	})
 })

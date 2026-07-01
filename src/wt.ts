@@ -191,6 +191,27 @@ export async function spawnWindow(opts: SpawnWindowOptions): Promise<void> {
 	await runWt(args)
 }
 
+/**
+ * Open a fresh dedicated window and run `commandline` in it — the app's own
+ * "center" window. This is what the old `scripts/launch.ps1` did: give ordo a
+ * clean window to capture as the fixed center rather than hijacking whatever
+ * terminal it was launched from.
+ *
+ * Unlike `spawnWindow` (used for satellites) this does NOT pin/suppress the
+ * title, so the app is free to name the tab after the session via OSC 0. Pass a
+ * `title` only to seed it (e.g. the session name on restore).
+ */
+export async function openSelfWindow(
+	commandline: string[],
+	cwd: string,
+	title?: string,
+): Promise<void> {
+	const args = ["-w", "new", "new-tab", "-d", cwd]
+	if (title) args.push("--title", title)
+	args.push(...commandline)
+	await runWt(args)
+}
+
 /** Move keyboard focus between panes of the target window. */
 export async function moveFocus(direction: Direction): Promise<void> {
 	await runWt([...windowTarget(), "move-focus", direction])
