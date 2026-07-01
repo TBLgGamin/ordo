@@ -16,8 +16,6 @@ import {
 	CLIENT_PATH,
 	COLOR_MODE,
 	TILE_GAP,
-	TITLE_DEBOUNCE_MS,
-	TITLE_ENABLED,
 } from "../core/config"
 import type { ControlEvent } from "../core/daemonProtocol"
 import { pickUniqueName } from "../core/names"
@@ -32,34 +30,9 @@ import { DaemonClient } from "../daemon/daemonClient"
 import { findTerminalWindowByExactTitle, type Hwnd, type Rect } from "../platform/win32"
 import { type Direction, spawnTab, spawnWindow } from "../platform/wt"
 import { LayoutManager } from "./layout"
-import { disposeTitleModel, gatherActivity, generateTitle } from "./title"
-
-/** Window title each satellite gets — its (unique) pane name, used to find its HWND. */
-function satelliteTitle(id: string): string {
-	return id
-}
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-export type PaneStatus = "spawning" | "connected" | "exited"
-
-export interface ManagedPane {
-	id: string
-	kind: "pane" | "tab" | "window"
-	direction?: Direction
-	status: PaneStatus
-	pid?: number
-	color?: string
-	cwd?: string
-	lastCommand?: string
-	/** Whitelisted foreground program (e.g. "vim"), reported by the agent. */
-	foreground?: string
-	createdAt: number
-}
-
-export type OrchestratorEvent =
-	| { type: "log"; level: "info" | "warn" | "error"; message: string }
-	| { type: "panes-changed" }
+import { gatherActivity } from "./title"
+import { SessionTitler } from "./titler"
+import { type ManagedPane, type OrchestratorEvent, satelliteTitle, sleep } from "./types"
 
 export class Orchestrator {
 	private readonly daemon = new DaemonClient()
@@ -75,11 +48,17 @@ export class Orchestrator {
 	sessionTitle?: string
 	private pendingRestore?: SessionState
 	private persistTimer?: ReturnType<typeof setInterval>
-	/** Debounce timer + in-flight guard for auto title (re)generation. */
-	private titleTimer?: ReturnType<typeof setTimeout>
-	private titleBusy = false
-	/** Last activity text we titled, so we skip regenerating identical activity. */
-	private lastTitledActivity?: string
+	/** Debounced auto title (re)generation driven by pane activity. */
+	private readonly titler = new SessionTitler(
+		() => (this.sessionId ? gatherActivity(this.sessionId, [...this.panes.keys()]) : null),
+		(title) => {
+			if (title === this.sessionTitle) return
+			this.sessionTitle = title
+			this.persist()
+			this.emit({ type: "panes-changed" })
+			this.log(`titled session → "${title}"`)
+		},
+	)
 
 	on(listener: (e: OrchestratorEvent) => void): () => void {
 		this.listeners.add(listener)
@@ -206,10 +185,7 @@ export class Orchestrator {
 			clearInterval(this.persistTimer)
 			this.persistTimer = undefined
 		}
-		if (this.titleTimer) {
-			clearTimeout(this.titleTimer)
-			this.titleTimer = undefined
-		}
+		this.titler.reset()
 		this.persist() // final save before detaching
 		void this.daemon.detachSession(id).catch(() => {})
 		// Reset back to a clean launcher.
@@ -220,8 +196,6 @@ export class Orchestrator {
 		this.colorIndex = 0
 		this.dirCycleIndex = 0
 		this.pendingRestore = undefined
-		this.lastTitledActivity = undefined
-		this.titleBusy = false
 		this.log(`closed session "${id}"`)
 		this.emit({ type: "panes-changed" })
 	}
@@ -281,7 +255,7 @@ export class Orchestrator {
 		this.persist()
 		this.log(`restored session "${this.sessionId}"`)
 		// Refresh the title from the restored panes' (now live) scrollback.
-		this.scheduleTitle()
+		this.titler.schedule()
 	}
 
 	/** Write the current layout to the session file. */
@@ -310,37 +284,6 @@ export class Orchestrator {
 			})
 		} catch {
 			// best-effort; never let persistence crash the app
-		}
-	}
-
-	/**
-	 * Debounced, auto-only session titling. Each new command resets the timer; when
-	 * activity settles we read the panes' recent scrollback and ask the local title
-	 * model for a name. Best-effort: failures leave the existing title (or id) in
-	 * place. Skips work when the activity is unchanged since the last title.
-	 */
-	private scheduleTitle(): void {
-		if (!TITLE_ENABLED) return
-		if (this.titleTimer) clearTimeout(this.titleTimer)
-		this.titleTimer = setTimeout(() => void this.regenerateTitle(), TITLE_DEBOUNCE_MS)
-	}
-
-	private async regenerateTitle(): Promise<void> {
-		if (this.titleBusy || !this.sessionId) return
-		const activity = gatherActivity(this.sessionId, [...this.panes.keys()])
-		if (!activity || activity === this.lastTitledActivity) return
-		this.titleBusy = true
-		try {
-			const title = await generateTitle(activity)
-			this.lastTitledActivity = activity
-			if (title && title !== this.sessionTitle) {
-				this.sessionTitle = title
-				this.persist()
-				this.emit({ type: "panes-changed" })
-				this.log(`titled session → "${title}"`)
-			}
-		} finally {
-			this.titleBusy = false
 		}
 	}
 
@@ -396,7 +339,7 @@ export class Orchestrator {
 			this.emit({ type: "panes-changed" })
 		}
 		// A fresh command ran in some pane → (re)title once activity settles.
-		if (newCommand) this.scheduleTitle()
+		if (newCommand) this.titler.schedule()
 	}
 
 	/** A unique soldier name for a new pane (avoids existing panes + the session). */
@@ -572,8 +515,7 @@ export class Orchestrator {
 		if (this.stopped) return
 		this.stopped = true
 		if (this.persistTimer) clearInterval(this.persistTimer)
-		if (this.titleTimer) clearTimeout(this.titleTimer)
-		void disposeTitleModel()
+		this.titler.stopTimer()
 		this.persist()
 		this.layout.unwatch()
 		void this.daemon.detachSession(this.sessionId).catch(() => {})
