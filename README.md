@@ -322,7 +322,7 @@ it never disturbs the terminal you launched it from.
 | `ORDO_BORDER_THICKNESS` | `3`     | Thickness (px) of the focused-window frame |
 | `ORDO_WT_WINDOW`  | `0` (current) | Window target for untiled `tab`/`win`     |
 | `ORDO_WT_EXE`     | auto-detected | Path to `wt.exe` if in a custom location  |
-| `ORDO_SHELL`      | `pwsh`        | Shell each agent drives                   |
+| `ORDO_SHELL`      | `pwsh`, else `powershell` | Shell each agent drives       |
 | `ORDO_RESTORE_PROGRAMS` | `vim nvim … claude …` | Programs re-launched on cold restore (empty disables) |
 | `ORDO_SCROLLBACK` | `1000`        | Scrollback lines reconstructed on cold restore |
 | `ORDO_TITLE`      | `1`           | Auto session titling (`0` disables it entirely) |

@@ -10,7 +10,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Socket } from "bun"
-import { BUN_EXE, DAEMON_PATH } from "../core/config"
+import { BUN_EXE, DAEMON_PATH, POWERSHELL_EXE } from "../core/config"
 import type {
 	ControlEvent,
 	ControlHello,
@@ -169,7 +169,7 @@ export class DaemonClient {
 		// Start-Process makes the daemon independent of (and outliving) this app,
 		// and -WindowStyle Hidden keeps it windowless. Single-quote the paths.
 		const ps = `Start-Process -FilePath '${BUN_EXE}' -ArgumentList @('run','${DAEMON_PATH}') -WindowStyle Hidden`
-		const proc = Bun.spawn(["pwsh", "-NoProfile", "-Command", ps], {
+		const proc = Bun.spawn([POWERSHELL_EXE, "-NoProfile", "-Command", ps], {
 			stdin: "ignore",
 			stdout: "ignore",
 			stderr: "ignore",

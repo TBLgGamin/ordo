@@ -65,8 +65,10 @@ export const DELETE_NAME = argValue("--delete")
 /** `--new` starts a fresh session immediately on launch (skips the launcher state). */
 export const NEW_SESSION = Bun.argv.includes("--new")
 
+export const POWERSHELL_EXE = Bun.which("pwsh") ? "pwsh" : "powershell"
+
 /** The shell each agent drives inside its pane. Override with ORDO_SHELL. */
-export const AGENT_SHELL = process.env.ORDO_SHELL ?? "pwsh"
+export const AGENT_SHELL = process.env.ORDO_SHELL ?? POWERSHELL_EXE
 
 /**
  * Programs the agent will re-launch on restore (tmux-resurrect style): if one of
