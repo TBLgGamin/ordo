@@ -10,12 +10,32 @@ $RepoUrl = 'https://github.com/TBLgGamin/ordo.git'
 $MinBun = [version]'1.3.14'
 $BunBin = Join-Path $HOME '.bun\bin'
 
-function Write-Step($message) { Write-Host "==> $message" -ForegroundColor Cyan }
-function Write-Ok($message) { Write-Host "    $message" -ForegroundColor Green }
-function Write-Note($message) { Write-Host "    $message" -ForegroundColor Yellow }
+$Esc = [char]27
+$Purple = "$Esc[38;2;214;201;249m"
+$PurpleBold = "$Esc[1;38;2;214;201;249m"
+$Reset = "$Esc[0m"
+
+function Write-Step($message) { Write-Host "$PurpleBold==>$Reset $Purple$message$Reset" }
+function Write-Info($message) { Write-Host "$Purple    $message$Reset" }
 function Stop-Fatal($message) {
-	Write-Host "ERROR: $message" -ForegroundColor Red
+	Write-Host "$PurpleBold!!$Reset $Purple$message$Reset"
 	exit 1
+}
+
+function Invoke-Quiet($file, $argList) {
+	$previous = $ErrorActionPreference
+	$ErrorActionPreference = 'Continue'
+	try {
+		$output = & $file @argList 2>&1
+		$code = $LASTEXITCODE
+	} finally {
+		$ErrorActionPreference = $previous
+	}
+	return [pscustomobject]@{ Code = $code; Output = $output }
+}
+
+function Show-Output($output) {
+	foreach ($line in $output) { Write-Info $line }
 }
 
 function Test-CommandExists($name) {
@@ -50,9 +70,9 @@ function Test-OrdoRepo($dir) {
 
 function Update-Repo($dir) {
 	Write-Step 'Updating the clone (git pull --ff-only)'
-	git -C $dir pull --ff-only
-	if ($LASTEXITCODE -ne 0) {
-		Write-Note 'git pull failed; continuing with the existing checkout.'
+	$result = Invoke-Quiet 'git' @('-C', $dir, 'pull', '--ff-only')
+	if ($result.Code -ne 0) {
+		Write-Info 'git pull failed; continuing with the existing checkout.'
 	}
 }
 
@@ -60,14 +80,14 @@ function Resolve-RepoRoot {
 	if ($PSScriptRoot) {
 		$candidate = Split-Path -Parent $PSScriptRoot
 		if (Test-OrdoRepo $candidate) {
-			Write-Ok "Using this clone at $candidate"
+			Write-Step "Using this clone at $candidate"
 			if ($Update) { Update-Repo $candidate }
 			$script:RepoRoot = $candidate
 			return
 		}
 	}
 	if (Test-OrdoRepo $InstallDir) {
-		Write-Ok "Using existing install at $InstallDir"
+		Write-Step "Using existing install at $InstallDir"
 		if ($Update) { Update-Repo $InstallDir }
 		$script:RepoRoot = $InstallDir
 		return
@@ -75,9 +95,12 @@ function Resolve-RepoRoot {
 	if (-not (Test-CommandExists 'git')) {
 		Stop-Fatal 'git is required to clone ordo. Install it: winget install Git.Git'
 	}
-	Write-Step "Cloning $RepoUrl into $InstallDir"
-	git clone $RepoUrl $InstallDir
-	if ($LASTEXITCODE -ne 0) { Stop-Fatal 'git clone failed.' }
+	Write-Step "Cloning ordo into $InstallDir"
+	$result = Invoke-Quiet 'git' @('clone', $RepoUrl, $InstallDir)
+	if ($result.Code -ne 0) {
+		Show-Output $result.Output
+		Stop-Fatal 'git clone failed.'
+	}
 	$script:RepoRoot = $InstallDir
 }
 
@@ -88,86 +111,94 @@ function Get-BunVersion {
 
 function Ensure-Bun {
 	if (-not (Test-CommandExists 'bun')) {
-		Write-Step 'Installing Bun (bun.sh/install.ps1)'
-		Invoke-RestMethod 'https://bun.sh/install.ps1' | Invoke-Expression
+		Write-Step 'Installing Bun'
+		$result = Invoke-Quiet 'powershell' @('-NoProfile', '-Command', 'irm bun.sh/install.ps1 | iex')
 		Add-BunToProcessPath
 		if (-not (Test-CommandExists 'bun')) {
+			Show-Output $result.Output
 			Stop-Fatal 'Bun was installed but is not on PATH. Open a new shell and re-run this script.'
 		}
 	}
 	$version = Get-BunVersion
 	if ($version -lt $MinBun) {
-		Write-Step "Bun $version is older than $MinBun; upgrading"
-		bun upgrade | Out-Null
+		Write-Step "Upgrading Bun $version to $MinBun or newer"
+		$result = Invoke-Quiet 'bun' @('upgrade')
 		$version = Get-BunVersion
 		if ($version -lt $MinBun) {
-			Stop-Fatal "ordo needs Bun >= $MinBun for Bun.Terminal (ConPTY). Found $version."
+			Show-Output $result.Output
+			Stop-Fatal "ordo needs Bun $MinBun+ for Bun.Terminal (ConPTY). Found $version."
 		}
 	}
-	Write-Ok "Bun $version"
+	Write-Info "Bun $version"
 }
 
 function Test-RuntimeDeps {
 	$wtApp = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\wt.exe'
 	if ((Test-CommandExists 'wt') -or (Test-Path $wtApp)) {
-		Write-Ok 'Windows Terminal (wt.exe) found'
+		Write-Info 'Windows Terminal found'
 	} else {
-		Write-Note 'Windows Terminal not found. Install: winget install Microsoft.WindowsTerminal'
+		Write-Info 'Windows Terminal not found - winget install Microsoft.WindowsTerminal'
 	}
 	if (Test-CommandExists 'pwsh') {
-		Write-Ok 'PowerShell 7 (pwsh) found'
+		Write-Info 'PowerShell 7 (pwsh) found'
 	} else {
-		Write-Note 'pwsh not found (ordo default shell). Install: winget install Microsoft.PowerShell (or set ORDO_SHELL)'
+		Write-Info 'pwsh not found (default shell) - winget install Microsoft.PowerShell, or set ORDO_SHELL'
 	}
 }
 
 function Install-Deps {
-	Write-Step 'Installing dependencies (bun install)'
+	Write-Step 'Installing dependencies'
 	Push-Location $script:RepoRoot
 	try {
-		bun install
-		if ($LASTEXITCODE -ne 0) { Stop-Fatal 'bun install failed.' }
+		$result = Invoke-Quiet 'bun' @('install')
+		if ($result.Code -ne 0) {
+			Show-Output $result.Output
+			Stop-Fatal 'bun install failed.'
+		}
 	} finally {
 		Pop-Location
 	}
-	Write-Ok 'Dependencies installed (node-llama-cpp native binary fetched via trustedDependencies)'
+	Write-Info 'Dependencies installed'
 }
 
 function Register-Command {
-	Write-Step 'Registering the ordo command (bun link)'
+	Write-Step 'Registering the ordo command'
 	Push-Location $script:RepoRoot
 	try {
-		bun link
-		if ($LASTEXITCODE -ne 0) { Stop-Fatal 'bun link failed.' }
+		$result = Invoke-Quiet 'bun' @('link')
+		if ($result.Code -ne 0) {
+			Show-Output $result.Output
+			Stop-Fatal 'bun link failed.'
+		}
 	} finally {
 		Pop-Location
 	}
 	Add-BunToProcessPath
 	if (Test-CommandExists 'ordo') {
-		Write-Ok 'ordo command registered'
+		Write-Info 'ordo registered on PATH'
 	} else {
-		Write-Note "ordo is linked but $BunBin is not on your persistent PATH."
-		Write-Note "Add $BunBin to your user PATH (System > Environment Variables), then reopen your shell."
+		Write-Info "ordo linked, but $BunBin is not on your persistent PATH."
+		Write-Info "Add $BunBin to your user PATH, then reopen your shell."
 	}
 }
 
 function Install-Model {
 	if ($SkipModel) {
-		Write-Note 'Skipping title-model download (-SkipModel).'
+		Write-Step 'Skipping title-model download (-SkipModel)'
 		return
 	}
 	if ($env:ORDO_TITLE -eq '0') {
-		Write-Note 'Skipping title-model download (ORDO_TITLE=0).'
+		Write-Step 'Skipping title-model download (ORDO_TITLE=0)'
 		return
 	}
-	Write-Step 'Downloading the title model (~230 MB, cached under %APPDATA%\ordo\models)'
+	Write-Step 'Downloading the title model (~230 MB, one-time)'
 	Push-Location $script:RepoRoot
 	try {
-		bun scripts/setup-model.ts
-		if ($LASTEXITCODE -ne 0) {
-			Write-Note 'Model download failed; ordo retries it on first run (titling is best-effort).'
+		$result = Invoke-Quiet 'bun' @('scripts/setup-model.ts')
+		if ($result.Code -ne 0) {
+			Write-Info 'Model download failed; ordo retries it on first run (titling is best-effort).'
 		} else {
-			Write-Ok 'Title model ready'
+			Write-Info 'Title model ready'
 		}
 	} finally {
 		Pop-Location
@@ -175,14 +206,18 @@ function Install-Model {
 }
 
 function Write-Summary {
-	$ordoStatus = if (Test-CommandExists 'ordo') { 'on PATH' } else { "linked (add $BunBin to PATH)" }
+	if (Test-CommandExists 'ordo') {
+		$ordoStatus = 'on PATH'
+	} else {
+		$ordoStatus = "linked (add $BunBin to PATH)"
+	}
 	Write-Host ''
-	Write-Host 'ordo is set up.' -ForegroundColor Cyan
-	Write-Host "  repo:  $script:RepoRoot"
-	Write-Host "  ordo:  $ordoStatus"
-	Write-Host '  run:   ordo'
-	Write-Host '         ordo --sessions    (list saved sessions)'
-	Write-Host '         ordo --new         (start a fresh session)'
+	Write-Host "$PurpleBold ordo is set up.$Reset"
+	Write-Host "$Purple   repo:  $script:RepoRoot$Reset"
+	Write-Host "$Purple   ordo:  $ordoStatus$Reset"
+	Write-Host "$Purple   run:   ordo$Reset"
+	Write-Host "$Purple          ordo --sessions    (list saved sessions)$Reset"
+	Write-Host "$Purple          ordo --new         (start a fresh session)$Reset"
 }
 
 Assert-Windows
