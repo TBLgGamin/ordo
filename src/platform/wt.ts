@@ -22,6 +22,10 @@
 import { lstatSync } from "node:fs"
 import { join } from "node:path"
 import { WT_WINDOW } from "../core/config"
+import { OrdoError } from "../core/errors"
+
+const WT_NOT_FOUND =
+	"Windows Terminal (wt.exe) not found — install it from the Microsoft Store or run: winget install Microsoft.WindowsTerminal"
 
 export type Direction = "left" | "right" | "up" | "down"
 
@@ -53,10 +57,21 @@ function resolveWtExe(): string {
 			// fall through to PATH lookup
 		}
 	}
-	return "wt.exe"
+	const onPath = Bun.which("wt.exe") ?? Bun.which("wt")
+	if (onPath) return onPath
+	throw new OrdoError(WT_NOT_FOUND)
 }
 
-const WT_EXE = resolveWtExe()
+let wtExe: string | undefined
+
+/** Memoized wt.exe path — resolved lazily so quick CLI commands don't pay for it. */
+function getWtExe(): string {
+	if (wtExe === undefined) wtExe = resolveWtExe()
+	return wtExe
+}
+
+/** Hard ceiling on a single wt.exe invocation so a wedged spawn can't hang a pane. */
+const WT_TIMEOUT_MS = 10000
 
 /** How a direction maps to a split axis and whether the new pane must be swapped. */
 interface SplitPlan {
@@ -95,17 +110,30 @@ export function isDirection(value: string): value is Direction {
  * `; swap-pane …` chaining tokens pass straight through to wt untouched.
  */
 async function runWt(args: string[]): Promise<number> {
-	const proc = Bun.spawn(["cmd.exe", "/d", "/c", WT_EXE, ...args], {
+	const proc = Bun.spawn(["cmd.exe", "/d", "/c", getWtExe(), ...args], {
 		stdin: "ignore",
 		stdout: "ignore",
 		stderr: "pipe",
 	})
-	const code = await proc.exited
-	if (code !== 0) {
-		const err = await new Response(proc.stderr).text()
-		throw new Error(`wt.exe exited ${code}: ${err.trim() || "(no stderr)"}`)
+	let timedOut = false
+	const timer = setTimeout(() => {
+		timedOut = true
+		try {
+			proc.kill()
+		} catch {}
+	}, WT_TIMEOUT_MS)
+	try {
+		const code = await proc.exited
+		if (timedOut) throw new Error(`wt.exe timed out after ${WT_TIMEOUT_MS}ms`)
+		if (code !== 0) {
+			const err = await new Response(proc.stderr).text()
+			if (/not recognized|cannot find|not found/i.test(err)) throw new OrdoError(WT_NOT_FOUND)
+			throw new Error(`wt.exe exited ${code}: ${err.trim() || "(no stderr)"}`)
+		}
+		return code
+	} finally {
+		clearTimeout(timer)
 	}
-	return code
 }
 
 /** Prefix that targets the configured window (omitted when WT_WINDOW is empty). */
@@ -125,13 +153,10 @@ export interface SpawnPaneOptions {
 	title?: string
 }
 
-/**
- * Split the focused pane of the target window in the given direction and run
- * `commandline` inside the new pane.
- */
-export async function spawnPane(opts: SpawnPaneOptions): Promise<void> {
+/** Build the wt.exe argv for a `split-pane` in the given direction. */
+export function buildPaneArgs(opts: SpawnPaneOptions, target: string[] = windowTarget()): string[] {
 	const plan = DIRECTION_PLANS[opts.direction]
-	const args: string[] = [...windowTarget(), "split-pane", plan.axis]
+	const args: string[] = [...target, "split-pane", plan.axis]
 
 	if (opts.size !== undefined) args.push("--size", String(opts.size))
 	if (opts.cwd) args.push("-d", opts.cwd)
@@ -143,7 +168,7 @@ export async function spawnPane(opts: SpawnPaneOptions): Promise<void> {
 	// Chain a swap so the new pane lands on the requested side.
 	if (plan.swap) args.push(";", "swap-pane", plan.swap)
 
-	await runWt(args)
+	return args
 }
 
 export interface SpawnTabOptions {
@@ -152,13 +177,13 @@ export interface SpawnTabOptions {
 	title?: string
 }
 
-/** Open a new tab in the target window running `commandline`. */
-export async function spawnTab(opts: SpawnTabOptions): Promise<void> {
-	const args: string[] = [...windowTarget(), "new-tab"]
+/** Build the wt.exe argv for a `new-tab` in the target window. */
+export function buildTabArgs(opts: SpawnTabOptions, target: string[] = windowTarget()): string[] {
+	const args: string[] = [...target, "new-tab"]
 	if (opts.cwd) args.push("-d", opts.cwd)
 	if (opts.title) args.push("--title", opts.title)
 	args.push(...opts.commandline)
-	await runWt(args)
+	return args
 }
 
 export interface SpawnWindowOptions {
@@ -177,7 +202,8 @@ export interface SpawnWindowOptions {
  * Open a brand-new window running `commandline`, optionally positioned/sized so
  * callers can "layer" satellite windows around the central one.
  */
-export async function spawnWindow(opts: SpawnWindowOptions): Promise<void> {
+/** Build the wt.exe argv for a brand-new positioned/sized window. */
+export function buildWindowArgs(opts: SpawnWindowOptions): string[] {
 	const args: string[] = ["-w", "new"]
 	if (opts.pos) args.push("--pos", `${opts.pos.x},${opts.pos.y}`)
 	if (opts.size) args.push("--size", `${opts.size.cols},${opts.size.rows}`)
@@ -188,7 +214,11 @@ export async function spawnWindow(opts: SpawnWindowOptions): Promise<void> {
 	// can't rename the window — we rely on the title to locate its HWND.
 	if (opts.title) args.push("--title", opts.title, "--suppressApplicationTitle")
 	args.push(...opts.commandline)
-	await runWt(args)
+	return args
+}
+
+export async function spawnWindow(opts: SpawnWindowOptions): Promise<void> {
+	await runWt(buildWindowArgs(opts))
 }
 
 /**
@@ -201,18 +231,23 @@ export async function spawnWindow(opts: SpawnWindowOptions): Promise<void> {
  * title, so the app is free to name the tab after the session via OSC 0. Pass a
  * `title` only to seed it (e.g. the session name on restore).
  */
+/** Build the wt.exe argv for the app's own fresh (unpinned-title) window. */
+export function buildSelfWindowArgs(commandline: string[], cwd: string, title?: string): string[] {
+	const args = ["-w", "new", "new-tab", "-d", cwd]
+	if (title) args.push("--title", title)
+	args.push(...commandline)
+	return args
+}
+
 export async function openSelfWindow(
 	commandline: string[],
 	cwd: string,
 	title?: string,
 ): Promise<void> {
-	const args = ["-w", "new", "new-tab", "-d", cwd]
-	if (title) args.push("--title", title)
-	args.push(...commandline)
-	await runWt(args)
+	await runWt(buildSelfWindowArgs(commandline, cwd, title))
 }
 
-/** Move keyboard focus between panes of the target window. */
-export async function moveFocus(direction: Direction): Promise<void> {
-	await runWt([...windowTarget(), "move-focus", direction])
+/** Build the wt.exe argv to move keyboard focus in the target window. */
+export function buildFocusArgs(direction: Direction, target: string[] = windowTarget()): string[] {
+	return [...target, "move-focus", direction]
 }

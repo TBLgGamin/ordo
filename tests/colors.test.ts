@@ -32,11 +32,22 @@ describe("lightTint", () => {
 		expect(lightTint("#123456", 1)).toBe("#ffffff")
 		expect(lightTint("#123456", 0)).toBe("#123456")
 	})
+
+	test("returns the input unchanged for a malformed hex", () => {
+		expect(lightTint("nope")).toBe("nope")
+		expect(lightTint("#12")).toBe("#12")
+	})
 })
 
 describe("ansiFg", () => {
 	test("emits a 24-bit truecolor foreground sequence", () => {
 		expect(ansiFg("#ff8000")).toBe("\x1b[38;2;255;128;0m")
+	})
+
+	test("returns an empty string for a malformed hex (no NaN escapes)", () => {
+		expect(ansiFg("garbage")).toBe("")
+		expect(ansiFg("#12")).toBe("")
+		expect(ansiFg("#zzzzzz")).toBe("")
 	})
 })
 

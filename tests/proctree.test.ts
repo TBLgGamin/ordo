@@ -1,42 +1,61 @@
-import { afterEach, describe, expect, test } from "bun:test"
-import type { Subprocess } from "bun"
-import { foregroundProgram } from "../src/platform/proctree"
+import { describe, expect, test } from "bun:test"
+import {
+	buildProcessIndex,
+	deepestWhitelisted,
+	type ProcInfo,
+	snapshotProcesses,
+} from "../src/platform/proctree"
 
-let child: Subprocess | undefined
-afterEach(() => {
-	child?.kill()
-	child = undefined
+describe("snapshotProcesses", () => {
+	test("returns a non-empty snapshot that includes this process", () => {
+		const procs = snapshotProcesses()
+		expect(procs.length).toBeGreaterThan(0)
+		expect(procs.some((p) => p.pid === process.pid)).toBe(true)
+		for (const p of procs) expect(p.name).toBe(p.name.toLowerCase())
+	})
+
+	test("every entry carries a numeric pid/ppid and a name", () => {
+		for (const p of snapshotProcesses().slice(0, 50)) {
+			expect(Number.isInteger(p.pid)).toBe(true)
+			expect(Number.isInteger(p.ppid)).toBe(true)
+			expect(typeof p.name).toBe("string")
+		}
+	})
 })
 
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
+describe("buildProcessIndex + deepestWhitelisted", () => {
+	const procs: ProcInfo[] = [
+		{ pid: 1, ppid: 0, name: "root" },
+		{ pid: 10, ppid: 1, name: "pwsh" },
+		{ pid: 20, ppid: 10, name: "git" },
+		{ pid: 30, ppid: 20, name: "less" },
+	]
 
-describe("foregroundProgram", () => {
-	test("detects a whitelisted descendant of a process", async () => {
-		// bun -> cmd -> ping : ping is the deepest descendant of this process.
-		child = Bun.spawn(["cmd.exe", "/c", "ping -n 5 127.0.0.1 >nul"], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		})
-		await delay(500)
-		expect(foregroundProgram(process.pid, new Set(["cmd", "ping"]))).toBe("ping")
-	}, 10000)
+	test("returns the deepest whitelisted descendant", () => {
+		expect(deepestWhitelisted(buildProcessIndex(procs), 10, new Set(["git", "less"]))).toBe("less")
+	})
 
-	test("returns null when no descendant is whitelisted", async () => {
-		child = Bun.spawn(["cmd.exe", "/c", "ping -n 5 127.0.0.1 >nul"], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		})
-		await delay(500)
-		expect(foregroundProgram(process.pid, new Set(["vim", "nvim"]))).toBeNull()
-	}, 10000)
+	test("prefers the deeper match even when a shallower one is whitelisted too", () => {
+		expect(deepestWhitelisted(buildProcessIndex(procs), 1, new Set(["pwsh", "less"]))).toBe("less")
+	})
 
 	test("returns null for an empty whitelist", () => {
-		expect(foregroundProgram(process.pid, new Set())).toBeNull()
+		expect(deepestWhitelisted(buildProcessIndex(procs), 10, new Set())).toBeNull()
+	})
+
+	test("returns null when nothing matches", () => {
+		expect(deepestWhitelisted(buildProcessIndex(procs), 10, new Set(["vim"]))).toBeNull()
 	})
 
 	test("returns null for a pid with no children", () => {
-		expect(foregroundProgram(999_999_999, new Set(["cmd"]))).toBeNull()
+		expect(deepestWhitelisted(buildProcessIndex(procs), 999_999_999, new Set(["less"]))).toBeNull()
+	})
+
+	test("survives a pid-reuse cycle", () => {
+		const cyclic: ProcInfo[] = [
+			{ pid: 5, ppid: 6, name: "shell" },
+			{ pid: 6, ppid: 5, name: "vim" },
+		]
+		expect(deepestWhitelisted(buildProcessIndex(cyclic), 5, new Set(["vim"]))).toBe("vim")
 	})
 })

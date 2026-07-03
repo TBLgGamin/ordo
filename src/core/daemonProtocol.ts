@@ -16,9 +16,12 @@
  * Reuses `encode` / `LineDecoder` from protocol.ts for all newline-JSON framing.
  */
 
+export const PROTOCOL_VERSION = 2
+
 export interface ControlHello {
 	kind: "control"
 	token: string
+	v?: number
 	/**
 	 * The session this orchestrator owns. When this control connection drops (the
 	 * main window closed by any route), the daemon closes that session's client
@@ -30,6 +33,7 @@ export interface ControlHello {
 export interface AttachHello {
 	kind: "attach"
 	token: string
+	v?: number
 	session: string
 	pane: string
 	cols: number
@@ -47,11 +51,9 @@ export type ControlRequest =
 			session: string
 			pane: string
 			cwd?: string
-			shell?: string
 			/** Cold-restore only: re-launch this whitelisted foreground program. */
 			relaunch?: string
 	  }
-	| { id: number; op: "hasPane"; session: string; pane: string }
 	| { id: number; op: "getState"; session: string }
 	| { id: number; op: "killPane"; session: string; pane: string }
 	/** Close all client windows for a session WITHOUT killing the shells. */

@@ -1,6 +1,12 @@
 import type { Rect } from "../platform/win32"
 import type { Direction } from "../platform/wt"
 
+const MIN_SLOT_H = 60
+
+function clampSize(r: Rect): Rect {
+	return { x: r.x, y: r.y, w: Math.max(0, r.w), h: Math.max(0, r.h) }
+}
+
 /** The outer bounds of a zone (before subdividing among its satellites). */
 export function zoneRect(dir: Direction, center: Rect, work: Rect): Rect {
 	const c = center
@@ -10,14 +16,14 @@ export function zoneRect(dir: Direction, center: Rect, work: Rect): Rect {
 	switch (dir) {
 		// Side columns run the FULL height so vertical stacking stays tall.
 		case "right":
-			return { x: c.x + c.w, y: w.y, w: right - (c.x + c.w), h: w.h }
+			return clampSize({ x: c.x + c.w, y: w.y, w: right - (c.x + c.w), h: w.h })
 		case "left":
-			return { x: w.x, y: w.y, w: c.x - w.x, h: w.h }
+			return clampSize({ x: w.x, y: w.y, w: c.x - w.x, h: w.h })
 		// Top/bottom strips span the center's width, in the gap above/below it.
 		case "up":
-			return { x: c.x, y: w.y, w: c.w, h: c.y - w.y }
+			return clampSize({ x: c.x, y: w.y, w: c.w, h: c.y - w.y })
 		case "down":
-			return { x: c.x, y: c.y + c.h, w: c.w, h: bottom - (c.y + c.h) }
+			return clampSize({ x: c.x, y: c.y + c.h, w: c.w, h: bottom - (c.y + c.h) })
 	}
 }
 
@@ -38,6 +44,7 @@ export function slotRects(
 	gap: number,
 ): Rect[] {
 	const z = zoneRect(dir, center, work)
+	if (z.w <= 0 || z.h <= 0) return []
 	const g = gap
 	const out: Rect[] = []
 	for (let i = 0; i < n; i++) {
@@ -48,7 +55,7 @@ export function slotRects(
 					x: cell.x + g,
 					y: cell.y + g,
 					w: Math.max(0, cell.w - 2 * g),
-					h: Math.max(0, cell.h - 2 * g),
+					h: Math.max(MIN_SLOT_H, cell.h - 2 * g),
 				},
 				work,
 			),

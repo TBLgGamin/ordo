@@ -5,4 +5,4 @@
 $ErrorActionPreference = "Continue"
 Set-Location -LiteralPath $PSScriptRoot/..
 bun run verify
-exit ($LASTEXITCODE -eq 0 ? 0 : 2)
+if ($LASTEXITCODE -eq 0) { exit 0 } else { exit 2 }

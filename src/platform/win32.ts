@@ -11,40 +11,63 @@
  */
 
 import { dlopen, FFIType, JSCallback, type Pointer, ptr } from "bun:ffi"
+import { OrdoError } from "../core/errors"
 
 /** A native window handle (HWND). Opaque pointer-sized value. */
 export type Hwnd = Pointer
 
-const user32 = dlopen("user32.dll", {
-	EnumWindows: { args: [FFIType.ptr, FFIType.i64], returns: FFIType.bool },
-	GetWindowTextW: { args: [FFIType.ptr, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
-	GetClassNameW: { args: [FFIType.ptr, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
-	IsWindowVisible: { args: [FFIType.ptr], returns: FFIType.bool },
-	GetWindowRect: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
-	SetWindowPos: {
-		args: [
-			FFIType.ptr,
-			FFIType.ptr,
-			FFIType.i32,
-			FFIType.i32,
-			FFIType.i32,
-			FFIType.i32,
-			FFIType.u32,
-		],
-		returns: FFIType.bool,
-	},
-	GetForegroundWindow: { args: [], returns: FFIType.ptr },
-	MonitorFromWindow: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
-	GetMonitorInfoW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
-})
+function loadUser32() {
+	try {
+		return dlopen("user32.dll", {
+			EnumWindows: { args: [FFIType.ptr, FFIType.i64], returns: FFIType.bool },
+			GetWindowTextW: { args: [FFIType.ptr, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
+			GetClassNameW: { args: [FFIType.ptr, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
+			IsWindowVisible: { args: [FFIType.ptr], returns: FFIType.bool },
+			GetWindowRect: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
+			SetWindowPos: {
+				args: [
+					FFIType.ptr,
+					FFIType.ptr,
+					FFIType.i32,
+					FFIType.i32,
+					FFIType.i32,
+					FFIType.i32,
+					FFIType.u32,
+				],
+				returns: FFIType.bool,
+			},
+			GetForegroundWindow: { args: [], returns: FFIType.ptr },
+			SetForegroundWindow: { args: [FFIType.ptr], returns: FFIType.bool },
+			MonitorFromWindow: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
+			GetMonitorInfoW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
+		})
+	} catch {
+		return null
+	}
+}
 
-const dwmapi = dlopen("dwmapi.dll", {
-	// DwmSetWindowAttribute(hwnd, attr, pvAttribute, cbAttribute)
-	DwmSetWindowAttribute: {
-		args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.u32],
-		returns: FFIType.i32,
-	},
-})
+function loadDwmapi() {
+	try {
+		return dlopen("dwmapi.dll", {
+			DwmSetWindowAttribute: {
+				args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.u32],
+				returns: FFIType.i32,
+			},
+		})
+	} catch {
+		return null
+	}
+}
+
+const user32lib = loadUser32()
+const dwmapiLib = loadDwmapi()
+
+function user32() {
+	if (!user32lib) {
+		throw new OrdoError("window management unavailable: could not load user32.dll")
+	}
+	return user32lib.symbols
+}
 
 /** Windows Terminal's top-level window class. */
 export const WT_WINDOW_CLASS = "CASCADIA_HOSTING_WINDOW_CLASS"
@@ -59,17 +82,18 @@ const DWMWA_CAPTION_COLOR = 35
 const DWMWA_TEXT_COLOR = 36
 const DWMWA_COLOR_DEFAULT = 0xffffffff
 
-function hexToColorref(hex: string): number {
+export function hexToColorref(hex: string): number {
 	const h = hex.replace("#", "")
-	const r = Number.parseInt(h.slice(0, 2), 16)
-	const g = Number.parseInt(h.slice(2, 4), 16)
-	const b = Number.parseInt(h.slice(4, 6), 16)
+	const r = Number.parseInt(h.slice(0, 2), 16) || 0
+	const g = Number.parseInt(h.slice(2, 4), 16) || 0
+	const b = Number.parseInt(h.slice(4, 6), 16) || 0
 	return (r | (g << 8) | (b << 16)) >>> 0 // COLORREF = 0x00BBGGRR
 }
 
 function dwmColor(hwnd: Hwnd, attr: number, colorref: number): void {
+	if (!dwmapiLib) return
 	const buf = new Uint32Array([colorref >>> 0])
-	dwmapi.symbols.DwmSetWindowAttribute(hwnd, attr, ptr(buf), 4)
+	dwmapiLib.symbols.DwmSetWindowAttribute(hwnd, attr, ptr(buf), 4)
 }
 
 /**
@@ -103,39 +127,50 @@ export interface WindowInfo {
 	className: string
 }
 
-function readWideString(buf: Uint16Array, len: number): string {
-	let out = ""
-	for (let i = 0; i < len; i++) out += String.fromCharCode(buf[i] ?? 0)
-	return out
-}
+// Reused across every enumeration: EnumWindows is synchronous and the runtime is
+// single-threaded, so these scratch buffers never see reentrant use.
+const textScratch = new Uint16Array(512)
+const classScratch = new Uint16Array(256)
+const textScratchBytes = new Uint8Array(textScratch.buffer)
+const classScratchBytes = new Uint8Array(classScratch.buffer)
+const wideDecoder = new TextDecoder("utf-16")
 
 function getWindowText(hwnd: Hwnd): string {
-	const buf = new Uint16Array(512)
-	const len = user32.symbols.GetWindowTextW(hwnd, ptr(buf), buf.length)
-	return readWideString(buf, len)
+	const len = user32().GetWindowTextW(hwnd, ptr(textScratch), textScratch.length)
+	return len > 0 ? wideDecoder.decode(textScratchBytes.subarray(0, len * 2)) : ""
 }
 
 function getClassName(hwnd: Hwnd): string {
-	const buf = new Uint16Array(256)
-	const len = user32.symbols.GetClassNameW(hwnd, ptr(buf), buf.length)
-	return readWideString(buf, len)
+	const len = user32().GetClassNameW(hwnd, ptr(classScratch), classScratch.length)
+	return len > 0 ? wideDecoder.decode(classScratchBytes.subarray(0, len * 2)) : ""
+}
+
+// One persistent JSCallback reused across every enumeration. EnumWindows is
+// synchronous and the runtime single-threaded, so there is no reentrancy: each
+// call resets the sink, runs the enum, and returns the freshly filled array.
+let enumSink: WindowInfo[] = []
+let enumCallback: JSCallback | undefined
+
+function enumWindowsCallback(): JSCallback {
+	if (!enumCallback) {
+		enumCallback = new JSCallback(
+			(hwnd: Hwnd) => {
+				if (user32().IsWindowVisible(hwnd)) {
+					enumSink.push({ hwnd, title: getWindowText(hwnd), className: getClassName(hwnd) })
+				}
+				return 1
+			},
+			{ args: [FFIType.ptr, FFIType.i64], returns: FFIType.i32 },
+		)
+	}
+	return enumCallback
 }
 
 /** Enumerate visible top-level windows with their title and class. */
 export function listTopWindows(): WindowInfo[] {
-	const out: WindowInfo[] = []
-	const cb = new JSCallback(
-		(hwnd: Hwnd) => {
-			if (user32.symbols.IsWindowVisible(hwnd)) {
-				out.push({ hwnd, title: getWindowText(hwnd), className: getClassName(hwnd) })
-			}
-			return 1 // keep enumerating
-		},
-		{ args: [FFIType.ptr, FFIType.i64], returns: FFIType.i32 },
-	)
-	user32.symbols.EnumWindows(cb.ptr, 0n)
-	cb.close()
-	return out
+	enumSink = []
+	user32().EnumWindows(enumWindowsCallback().ptr, 0n)
+	return enumSink
 }
 
 /** All visible Windows Terminal windows. */
@@ -145,31 +180,26 @@ export function listTerminalWindows(): WindowInfo[] {
 
 /** The currently focused window's handle (0 if none). */
 export function getForegroundWindow(): Hwnd {
-	return (user32.symbols.GetForegroundWindow() ?? 0) as unknown as Hwnd
+	return (user32().GetForegroundWindow() ?? 0) as unknown as Hwnd
 }
 
-/** Find the first Windows Terminal window whose title contains `needle`. */
-export function findTerminalWindowByTitle(needle: string): Hwnd | null {
-	const match = listTerminalWindows().find((w) => w.title.includes(needle))
-	return match ? match.hwnd : null
+/** Bring a window to the foreground (best-effort — Windows may restrict it). */
+export function setForegroundWindow(hwnd: Hwnd): boolean {
+	if (!hwnd) return false
+	return user32().SetForegroundWindow(hwnd)
 }
 
-/** Find the Windows Terminal window whose title is exactly `title`. */
-export function findTerminalWindowByExactTitle(title: string): Hwnd | null {
-	const match = listTerminalWindows().find((w) => w.title === title)
-	return match ? match.hwnd : null
-}
+const rectScratch = new Int32Array(4) // left, top, right, bottom
 
-export function getWindowRect(hwnd: Hwnd): Rect {
-	const buf = new Int32Array(4) // left, top, right, bottom
-	user32.symbols.GetWindowRect(hwnd, ptr(buf))
-	const [left = 0, top = 0, right = 0, bottom = 0] = buf
+export function getWindowRect(hwnd: Hwnd): Rect | null {
+	if (!user32().GetWindowRect(hwnd, ptr(rectScratch))) return null
+	const [left = 0, top = 0, right = 0, bottom = 0] = rectScratch
 	return { x: left, y: top, w: right - left, h: bottom - top }
 }
 
 /** Move + resize a window without changing z-order or stealing focus. */
 export function setWindowRect(hwnd: Hwnd, rect: Rect): boolean {
-	return user32.symbols.SetWindowPos(
+	return user32().SetWindowPos(
 		hwnd,
 		null,
 		Math.round(rect.x),
@@ -180,17 +210,19 @@ export function setWindowRect(hwnd: Hwnd, rect: Rect): boolean {
 	)
 }
 
+// MONITORINFO: cbSize(4) + rcMonitor(16) + rcWork(16) + dwFlags(4) = 40 bytes.
+const monitorInfoBytes = new Uint8Array(40)
+const monitorInfoView = new DataView(monitorInfoBytes.buffer)
+monitorInfoView.setUint32(0, 40, true)
+
 /** Work area (screen minus taskbar) of the monitor containing `hwnd`. */
-export function getWorkArea(hwnd: Hwnd): Rect {
-	const monitor = user32.symbols.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
-	// MONITORINFO: cbSize(4) + rcMonitor(16) + rcWork(16) + dwFlags(4) = 40 bytes.
-	const buf = new ArrayBuffer(40)
-	const view = new DataView(buf)
-	view.setUint32(0, 40, true) // cbSize
-	user32.symbols.GetMonitorInfoW(monitor, ptr(new Uint8Array(buf)))
-	const left = view.getInt32(20, true)
-	const top = view.getInt32(24, true)
-	const right = view.getInt32(28, true)
-	const bottom = view.getInt32(32, true)
+export function getWorkArea(hwnd: Hwnd): Rect | null {
+	const monitor = user32().MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+	if (!monitor) return null
+	if (!user32().GetMonitorInfoW(monitor, ptr(monitorInfoBytes))) return null
+	const left = monitorInfoView.getInt32(20, true)
+	const top = monitorInfoView.getInt32(24, true)
+	const right = monitorInfoView.getInt32(28, true)
+	const bottom = monitorInfoView.getInt32(32, true)
 	return { x: left, y: top, w: right - left, h: bottom - top }
 }

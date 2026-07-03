@@ -23,27 +23,43 @@ import { scrollbackPath } from "../core/session"
 // titling actually runs (and a missing/broken install can't crash startup).
 type Llama = Awaited<ReturnType<typeof import("node-llama-cpp").getLlama>>
 type LlamaModel = Awaited<ReturnType<Llama["loadModel"]>>
+type LlamaContext = Awaited<ReturnType<LlamaModel["createContext"]>>
+type LlamaContextSequence = ReturnType<LlamaContext["getSequence"]>
 
-let loaded: { model: LlamaModel } | null = null
+interface Loaded {
+	model: LlamaModel
+	context?: LlamaContext
+	sequence?: LlamaContextSequence
+}
+
+let loaded: Loaded | null = null
 let disabled = false
+let failures = 0
+let retryAt = 0
 /** De-duplicate concurrent load attempts. */
-let loadPromise: Promise<{ model: LlamaModel } | null> | null = null
+let loadPromise: Promise<Loaded | null> | null = null
+
+const MAX_LOAD_FAILURES = 5
+const RETRY_BASE_MS = 60_000
+const RETRY_CAP_MS = 3_600_000
 
 /** How much of each pane's capture tail to read / feed (bytes, lines, chars). */
 const READ_TAIL_BYTES = 16 * 1024
 const LINES_PER_PANE = 12
 const MAX_PROMPT_CHARS = 3000
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching VT CSI escape bytes
+const ANSI_CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching VT OSC escape bytes
+const ANSI_OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching two-byte VT escapes
+const ANSI_ESC = /\x1b[@-Z\\-_]/g
+const CR = /\r/g
+const captureDecoder = new TextDecoder()
+
 /** Strip the ANSI/VT control sequences out of raw terminal capture. */
 function stripAnsi(s: string): string {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching VT CSI escape bytes
-	const csi = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching VT OSC escape bytes
-	const osc = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching two-byte VT escapes
-	const esc = /\x1b[@-Z\\-_]/g
-	const cr = /\r/g
-	return s.replace(csi, "").replace(osc, "").replace(esc, "").replace(cr, "")
+	return s.replace(ANSI_CSI, "").replace(ANSI_OSC, "").replace(ANSI_ESC, "").replace(CR, "")
 }
 
 /** Read the cleaned tail (last few lines) of one pane's scrollback capture. */
@@ -51,7 +67,7 @@ function paneTail(sessionId: string, paneId: string): string[] {
 	try {
 		const buf = readFileSync(scrollbackPath(sessionId, paneId))
 		const tail = buf.subarray(Math.max(0, buf.byteLength - READ_TAIL_BYTES))
-		const text = stripAnsi(new TextDecoder().decode(tail))
+		const text = stripAnsi(captureDecoder.decode(tail))
 		return text
 			.split("\n")
 			.map((l) => l.replace(/\s+$/, ""))
@@ -79,9 +95,9 @@ export function gatherActivity(sessionId: string, paneIds: string[]): string | n
 }
 
 /** Lazily download + load the title model. Returns null (and disables) on failure. */
-async function ensureModel(): Promise<{ model: LlamaModel } | null> {
+async function ensureModel(): Promise<Loaded | null> {
 	if (loaded) return loaded
-	if (disabled) return null
+	if (disabled || Date.now() < retryAt) return null
 	if (loadPromise) return loadPromise
 	loadPromise = (async () => {
 		try {
@@ -94,9 +110,13 @@ async function ensureModel(): Promise<{ model: LlamaModel } | null> {
 			const llama = await getLlama()
 			const model = await llama.loadModel({ modelPath })
 			loaded = { model }
+			failures = 0
+			retryAt = 0
 			return loaded
 		} catch {
-			disabled = true // don't hammer a broken/offline setup on every activity tick
+			failures++
+			retryAt = Date.now() + Math.min(RETRY_BASE_MS * 2 ** (failures - 1), RETRY_CAP_MS)
+			if (failures >= MAX_LOAD_FAILURES) disabled = true
 			return null
 		} finally {
 			loadPromise = null
@@ -122,28 +142,40 @@ function cleanTitle(raw: string): string {
 export async function generateTitle(activity: string): Promise<string | null> {
 	const m = await ensureModel()
 	if (!m) return null
-	let context: Awaited<ReturnType<LlamaModel["createContext"]>> | undefined
 	try {
 		const { LlamaChatSession } = await import("node-llama-cpp")
-		context = await m.model.createContext({ contextSize: 1024 })
+		// Create the context + sequence once and reuse them across generations —
+		// node-llama-cpp overrides the sequence state per session, so a fresh
+		// LlamaChatSession on the same sequence stays independent (no leakage).
+		if (!m.context || !m.sequence) {
+			m.context = await m.model.createContext({ contextSize: 1024 })
+			m.sequence = m.context.getSequence()
+		}
 		const session = new LlamaChatSession({
-			contextSequence: context.getSequence(),
+			contextSequence: m.sequence,
 			systemPrompt: "", // crucial: this model was trained without a system prompt
 		})
 		const raw = await session.prompt(activity, { maxTokens: 16, temperature: 0.3 })
 		const title = cleanTitle(raw)
 		return title.length > 0 ? title : null
 	} catch {
+		// Self-heal: drop the (possibly wedged) context so the next call rebuilds it.
+		try {
+			await m.context?.dispose()
+		} catch {}
+		m.context = undefined
+		m.sequence = undefined
 		return null
-	} finally {
-		await context?.dispose().catch(() => {})
 	}
 }
 
-/** Free the model (best-effort) on shutdown. */
+/** Free the model + context (best-effort) on shutdown. */
 export async function disposeTitleModel(): Promise<void> {
 	const m = loaded
 	loaded = null
 	disabled = true
+	try {
+		await m?.context?.dispose()
+	} catch {}
 	await m?.model.dispose().catch(() => {})
 }

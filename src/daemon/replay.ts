@@ -14,7 +14,7 @@
  * "restore terminal state on reconnect".
  */
 
-import { readFileSync } from "node:fs"
+import { readFile } from "node:fs/promises"
 import { SerializeAddon } from "@xterm/addon-serialize"
 import { Terminal } from "@xterm/headless"
 
@@ -29,13 +29,13 @@ export async function reconstructScreen(
 	rows: number,
 	scrollback: number,
 ): Promise<string> {
-	let raw: string
+	let raw: Buffer
 	try {
-		raw = readFileSync(capturePath, "utf8")
+		raw = await readFile(capturePath)
 	} catch {
 		return ""
 	}
-	if (!raw) return ""
+	if (raw.byteLength === 0) return ""
 
 	const term = new Terminal({
 		cols: Math.max(1, cols),
@@ -47,7 +47,7 @@ export async function reconstructScreen(
 	term.loadAddon(serializer)
 
 	// xterm.js parses writes asynchronously; wait for the whole capture to drain.
-	await new Promise<void>((resolve) => term.write(raw, () => resolve()))
+	await new Promise<void>((resolve) => term.write(new Uint8Array(raw), () => resolve()))
 
 	const out = serializer.serialize()
 	term.dispose()

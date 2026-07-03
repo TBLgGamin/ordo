@@ -25,6 +25,22 @@ const DIGIT_9 = 0x39
 
 type State = "normal" | "esc" | "osc" | "csi"
 
+const EMPTY = new Uint8Array(0)
+const oscDecoder = new TextDecoder()
+
+function concatOwned(segs: Uint8Array[]): Uint8Array {
+	if (segs.length === 0) return EMPTY
+	let total = 0
+	for (const s of segs) total += s.length
+	const out = new Uint8Array(total)
+	let off = 0
+	for (const s of segs) {
+		out.set(s, off)
+		off += s.length
+	}
+	return out
+}
+
 export interface TitleStripperOptions {
 	/** Drop the shell's first screen-clear/home (used during restore). */
 	suppressStartupClears?: boolean
@@ -34,7 +50,8 @@ export interface TitleStripperOptions {
 
 export class TitleStripper {
 	private state: State = "normal"
-	private buf: number[] = []
+	private seq = new Uint8Array(256)
+	private seqLen = 0
 	private oscEscPending = false
 	private suppressClears: boolean
 	private readonly onCwd?: (path: string) => void
@@ -45,16 +62,51 @@ export class TitleStripper {
 		this.onCwd = opts.onCwd
 	}
 
+	private appendSeq(b: number): void {
+		if (this.seqLen === this.seq.length) {
+			const next = new Uint8Array(this.seq.length * 2)
+			next.set(this.seq)
+			this.seq = next
+		}
+		this.seq[this.seqLen++] = b
+	}
+
+	private emitSeq(segs: Uint8Array[]): void {
+		if (this.seqLen > 0) segs.push(this.seq.slice(0, this.seqLen))
+	}
+
 	push(chunk: Uint8Array): Uint8Array {
-		const out: number[] = []
-		for (const b of chunk) {
+		if (this.state === "normal" && chunk.indexOf(ESC) === -1) {
+			if (this.suppressClears) {
+				for (let i = 0; i < chunk.length; i++) {
+					const b = chunk[i] as number
+					if (b >= 0x20 && b !== 0x7f) {
+						this.suppressClears = false
+						break
+					}
+				}
+			}
+			return chunk.byteLength === 0 ? EMPTY : new Uint8Array(chunk)
+		}
+
+		const segs: Uint8Array[] = []
+		let runStart = -1
+
+		let i = 0
+		for (; i < chunk.length; i++) {
+			const b = chunk[i] as number
 			switch (this.state) {
 				case "normal":
 					if (b === ESC) {
+						if (runStart >= 0) {
+							segs.push(chunk.subarray(runStart, i))
+							runStart = -1
+						}
 						this.state = "esc"
-						this.buf = [b]
+						this.seqLen = 0
+						this.appendSeq(b)
 					} else {
-						out.push(b)
+						if (runStart < 0) runStart = i
 						// First visible character from the shell (its prompt) ends the
 						// startup-clear suppression window. Control bytes don't count.
 						if (this.suppressClears && b >= 0x20 && b !== 0x7f) this.suppressClears = false
@@ -64,72 +116,73 @@ export class TitleStripper {
 				case "esc":
 					if (b === OSC_INTRODUCER) {
 						this.state = "osc"
-						this.buf.push(b)
+						this.appendSeq(b)
 						this.oscEscPending = false
 					} else if (b === CSI_INTRODUCER) {
 						this.state = "csi"
-						this.buf.push(b)
+						this.appendSeq(b)
 					} else {
-						out.push(...this.buf)
-						this.buf = []
+						this.emitSeq(segs)
+						this.seqLen = 0
 						if (b === ESC) {
 							this.state = "esc"
-							this.buf = [b]
+							this.appendSeq(b)
 						} else {
 							this.state = "normal"
-							out.push(b)
+							runStart = i
 						}
 					}
 					break
 
 				case "csi":
-					this.buf.push(b)
+					this.appendSeq(b)
 					// CSI ends at a final byte in 0x40..0x7e.
 					if (b >= 0x40 && b <= 0x7e) {
-						this.endCsi(out)
-					} else if (this.buf.length > TitleStripper.MAX_SEQ) {
-						out.push(...this.buf)
+						this.endCsi(segs)
+					} else if (this.seqLen > TitleStripper.MAX_SEQ) {
+						this.emitSeq(segs)
 						this.reset()
 					}
 					break
 
 				case "osc":
-					this.buf.push(b)
+					this.appendSeq(b)
 					if (this.oscEscPending) {
 						this.oscEscPending = false
-						if (b === BACKSLASH) this.endOsc(out)
+						if (b === BACKSLASH) this.endOsc(segs)
 					} else if (b === BEL) {
-						this.endOsc(out)
+						this.endOsc(segs)
 					} else if (b === ESC) {
 						this.oscEscPending = true
 					}
-					if (this.state === "osc" && this.buf.length > TitleStripper.MAX_SEQ) {
-						out.push(...this.buf)
+					if (this.state === "osc" && this.seqLen > TitleStripper.MAX_SEQ) {
+						this.emitSeq(segs)
 						this.reset()
 					}
 					break
 			}
 		}
-		return Uint8Array.from(out)
+		if (runStart >= 0) segs.push(chunk.subarray(runStart, i))
+		return concatOwned(segs)
 	}
 
 	/** At a CSI final byte: drop a startup clear/home while suppressing; else emit. */
-	private endCsi(out: number[]): void {
+	private endCsi(segs: Uint8Array[]): void {
 		if (this.suppressClears && this.isStartupClearOrHome()) {
 			this.reset()
 			return
 		}
-		out.push(...this.buf)
+		this.emitSeq(segs)
 		this.reset()
 	}
 
 	/** True for full screen-clears (CSI 2J / 3J) and cursor-home (CSI H/f, 1;1). */
 	private isStartupClearOrHome(): boolean {
-		// buf = [ESC, '[', ...params..., final]
-		const final = this.buf[this.buf.length - 1]
+		// seq = [ESC, '[', ...params..., final]
+		const final = this.seq[this.seqLen - 1]
 		let params = ""
-		for (let i = 2; i < this.buf.length - 1; i++) {
-			const c = this.buf[i]
+		for (let i = 2; i < this.seqLen - 1; i++) {
+			const c = this.seq[i]
 			if (c !== undefined) params += String.fromCharCode(c)
 		}
 		if (final === 0x4a /* J */) return params === "2" || params === "3"
@@ -139,7 +192,7 @@ export class TitleStripper {
 		return false
 	}
 
-	private endOsc(out: number[]): void {
+	private endOsc(segs: Uint8Array[]): void {
 		const ps = this.oscOpcode()
 		// OSC 9;9;<path> = ConEmu/Windows-Terminal "set cwd". Report it (and keep it
 		// in the stream so the terminal can use it too).
@@ -150,23 +203,23 @@ export class TitleStripper {
 				if (path) this.onCwd(path)
 			}
 		}
-		if (ps !== 0 && ps !== 1 && ps !== 2) out.push(...this.buf)
+		if (ps !== 0 && ps !== 1 && ps !== 2) this.emitSeq(segs)
 		this.reset()
 	}
 
 	/** The OSC payload text (between `ESC ]` and the terminator), decoded as UTF-8. */
 	private oscPayload(): string {
-		// buf = [ESC, ']', ...payload..., BEL]  OR  [..., ESC, '\']
-		let end = this.buf.length
-		if (this.buf[end - 1] === BEL) end -= 1
-		else if (this.buf[end - 1] === BACKSLASH && this.buf[end - 2] === ESC) end -= 2
-		return new TextDecoder().decode(Uint8Array.from(this.buf.slice(2, end)))
+		// seq = [ESC, ']', ...payload..., BEL]  OR  [..., ESC, '\']
+		let end = this.seqLen
+		if (this.seq[end - 1] === BEL) end -= 1
+		else if (this.seq[end - 1] === BACKSLASH && this.seq[end - 2] === ESC) end -= 2
+		return oscDecoder.decode(this.seq.subarray(2, end))
 	}
 
 	private oscOpcode(): number {
 		let digits = ""
-		for (let i = 2; i < this.buf.length; i++) {
-			const c = this.buf[i]
+		for (let i = 2; i < this.seqLen; i++) {
+			const c = this.seq[i]
 			if (c === undefined || c < DIGIT_0 || c > DIGIT_9) break
 			digits += String.fromCharCode(c)
 		}
@@ -175,7 +228,7 @@ export class TitleStripper {
 
 	private reset(): void {
 		this.state = "normal"
-		this.buf = []
+		this.seqLen = 0
 		this.oscEscPending = false
 	}
 }

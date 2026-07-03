@@ -1,6 +1,6 @@
 import { ansiFg } from "../core/colors"
 import { listSessionNames, loadSession, type SessionState } from "../core/session"
-import { relativeTime, truncate } from "./format"
+import { paneCountLabel, relativeTime, sessionHeading, truncate } from "./format"
 
 // ---------------------------------------------------------------------------
 // Session list — `--sessions` (printed inline, no TUI)
@@ -25,9 +25,9 @@ export function printSessions(): void {
 
 	console.log(`\n${C.bold}ordo sessions (${sessions.length})${C.reset}\n`)
 	for (const s of sessions) {
-		const count = `${s.satellites.length} pane${s.satellites.length === 1 ? "" : "s"}`
+		const count = paneCountLabel(s)
 		// Heading is the generated title (id shown beneath it); falls back to the id.
-		const heading = s.title ?? s.id
+		const heading = sessionHeading(s)
 		console.log(
 			`${C.cyan}${C.bold}${heading}${C.reset}  ${C.dim}${count} · ${relativeTime(s.updatedAt)}${C.reset}`,
 		)

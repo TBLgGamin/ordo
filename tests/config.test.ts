@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { RESTORE_PROGRAMS, SCROLLBACK_LINES } from "../src/core/config"
+import {
+	parseArgValue,
+	parseNumEnv,
+	parseProgramList,
+	RESTORE_PROGRAMS,
+	SCROLLBACK_LINES,
+} from "../src/core/config"
 
 describe("RESTORE_PROGRAMS (defaults)", () => {
 	test("is a non-empty set of lowercased program names", () => {
@@ -16,27 +22,52 @@ describe("SCROLLBACK_LINES (default)", () => {
 	})
 })
 
-describe("ORDO_RESTORE_PROGRAMS override", () => {
-	test("parses a space/comma separated, case-insensitive override", async () => {
-		const proc = Bun.spawn(
-			["bun", "-e", "import('./src/core/config.ts').then(m=>process.stdout.write(JSON.stringify([...m.RESTORE_PROGRAMS])))"],
-			{
-				env: { ...process.env, ORDO_RESTORE_PROGRAMS: "Foo, bar  BAZ" },
-				stdout: "pipe",
-				stderr: "ignore",
-			},
-		)
-		await proc.exited
-		const list = JSON.parse(await new Response(proc.stdout).text()) as string[]
-		expect(new Set(list)).toEqual(new Set(["foo", "bar", "baz"]))
-	}, 15000)
+describe("parseProgramList", () => {
+	test("parses a space/comma separated, case-insensitive list", () => {
+		expect(parseProgramList("Foo, bar  BAZ")).toEqual(new Set(["foo", "bar", "baz"]))
+	})
 
-	test("empty override disables relaunch (empty set)", async () => {
-		const proc = Bun.spawn(
-			["bun", "-e", "import('./src/core/config.ts').then(m=>process.stdout.write(String(m.RESTORE_PROGRAMS.size)))"],
-			{ env: { ...process.env, ORDO_RESTORE_PROGRAMS: "" }, stdout: "pipe", stderr: "ignore" },
-		)
-		await proc.exited
-		expect(await new Response(proc.stdout).text()).toBe("0")
-	}, 15000)
+	test("an empty string yields an empty set (relaunch disabled)", () => {
+		expect(parseProgramList("").size).toBe(0)
+	})
+
+	test("dedupes repeats", () => {
+		expect(parseProgramList("vim vim VIM")).toEqual(new Set(["vim"]))
+	})
+})
+
+describe("parseNumEnv clamping", () => {
+	test("clamps above max", () => {
+		expect(parseNumEnv("5", 0.48, 0.1, 0.9)).toBe(0.9)
+	})
+	test("clamps below min", () => {
+		expect(parseNumEnv("-3", 2, 0, 64)).toBe(0)
+	})
+	test("undefined falls back to default", () => {
+		expect(parseNumEnv(undefined, 2, 0, 64)).toBe(2)
+	})
+	test("empty string falls back to default", () => {
+		expect(parseNumEnv("", 0.48, 0.1, 0.9)).toBe(0.48)
+	})
+	test("garbage falls back to default", () => {
+		expect(parseNumEnv("abc", 2, 0, 64)).toBe(2)
+	})
+	test("a valid in-range value passes through", () => {
+		expect(parseNumEnv("0.5", 0.48, 0.1, 0.9)).toBe(0.5)
+	})
+})
+
+describe("parseArgValue", () => {
+	test("reads a normal value", () => {
+		expect(parseArgValue(["--restore", "mysess"], "--restore")).toBe("mysess")
+	})
+	test("rejects a flag-like value", () => {
+		expect(parseArgValue(["--restore", "--sessions"], "--restore")).toBeUndefined()
+	})
+	test("undefined when the flag is last", () => {
+		expect(parseArgValue(["--restore"], "--restore")).toBeUndefined()
+	})
+	test("undefined when the flag is absent", () => {
+		expect(parseArgValue(["--other", "x"], "--restore")).toBeUndefined()
+	})
 })

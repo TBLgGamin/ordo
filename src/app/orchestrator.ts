@@ -18,21 +18,33 @@ import {
 	TILE_GAP,
 } from "../core/config"
 import type { ControlEvent } from "../core/daemonProtocol"
+import { errMessage } from "../core/errors"
 import { pickUniqueName } from "../core/names"
 import {
 	deleteSession,
-	generateSessionId,
+	listSessionNames,
 	loadSession,
 	type SessionState,
 	saveSession,
 } from "../core/session"
 import { DaemonClient } from "../daemon/daemonClient"
-import { findTerminalWindowByExactTitle, type Hwnd, type Rect } from "../platform/win32"
-import { type Direction, spawnTab, spawnWindow } from "../platform/wt"
+import { type Hwnd, listTerminalWindows, type Rect, type WindowInfo } from "../platform/win32"
+import { type Direction, spawnWindow } from "../platform/wt"
 import { LayoutManager } from "./layout"
+import { reconnectDecision } from "./reconnect"
 import { gatherActivity } from "./title"
 import { SessionTitler } from "./titler"
-import { type ManagedPane, type OrchestratorEvent, satelliteTitle, sleep } from "./types"
+import { type ManagedPane, type OrchestratorEvent, runPool, satelliteTitle, sleep } from "./types"
+
+const TEARDOWN_POLL_INTERVAL_MS = 100
+const TEARDOWN_POLL_ATTEMPTS = 5
+const WINDOW_FIND_TIMEOUT_MS = 5000
+const WINDOW_POLL_STEP_MS = 50
+const WINDOW_POLL_MAX_MS = 250
+const WINDOW_ENUM_TTL_MS = 40
+const RESTORE_CONCURRENCY = 3
+const SPAWN_COLS = 80
+const SPAWN_ROWS = 24
 
 export class Orchestrator {
 	private readonly daemon = new DaemonClient()
@@ -41,18 +53,24 @@ export class Orchestrator {
 	private readonly listeners = new Set<(e: OrchestratorEvent) => void>()
 	/** Monotonic index into the color palette (separate from pane names). */
 	private colorIndex = 0
+	/** Serializes session-mutating actions so rapid keypresses can't interleave. */
+	private busy: Promise<unknown> = Promise.resolve()
 
 	/** The current session's unique id (a soldier name; the center window's title). */
 	sessionId = ""
 	/** Model-generated human title for this session (undefined until generated). */
 	sessionTitle?: string
+	/** True once the user renamed the session by hand — suppresses the auto-titler. */
+	private manualTitle = false
 	private pendingRestore?: SessionState
 	private persistTimer?: ReturnType<typeof setInterval>
+	private winEnumAt = 0
+	private winEnumCache: WindowInfo[] = []
 	/** Debounced auto title (re)generation driven by pane activity. */
 	private readonly titler = new SessionTitler(
 		() => (this.sessionId ? gatherActivity(this.sessionId, [...this.panes.keys()]) : null),
 		(title) => {
-			if (title === this.sessionTitle) return
+			if (this.manualTitle || title === this.sessionTitle) return
 			this.sessionTitle = title
 			this.persist()
 			this.emit({ type: "panes-changed" })
@@ -60,17 +78,66 @@ export class Orchestrator {
 		},
 	)
 
+	/** Rename the current session by hand; the auto-titler stops overriding it. */
+	renameSession(title: string): void {
+		if (!this.hasSession) {
+			this.log("no active session to rename", "warn")
+			return
+		}
+		const trimmed = title.trim()
+		if (!trimmed) return
+		this.sessionTitle = trimmed
+		this.manualTitle = true
+		this.persistNow()
+		this.emit({ type: "panes-changed" })
+		this.log(`renamed session → "${trimmed}"`)
+	}
+
+	/** Cycle keyboard focus to the next/previous window (center + satellites). */
+	focusNext(): void {
+		this.layout.focusCycle(1)
+	}
+
+	focusPrev(): void {
+		this.layout.focusCycle(-1)
+	}
+
 	on(listener: (e: OrchestratorEvent) => void): () => void {
 		this.listeners.add(listener)
 		return () => this.listeners.delete(listener)
 	}
 
 	private emit(event: OrchestratorEvent): void {
-		for (const l of this.listeners) l(event)
+		for (const l of this.listeners) {
+			try {
+				l(event)
+			} catch (e) {
+				console.error(`ordo: orchestrator listener failed: ${e instanceof Error ? e.message : e}`)
+			}
+		}
+	}
+
+	/** Run `fn` after any in-flight action settles, so transitions never overlap. */
+	private serialize<T>(fn: () => Promise<T>): Promise<T> {
+		const run = this.busy.then(fn, fn)
+		this.busy = run.then(
+			() => undefined,
+			() => undefined,
+		)
+		return run
 	}
 
 	private log(message: string, level: "info" | "warn" | "error" = "info"): void {
 		this.emit({ type: "log", level, message })
+	}
+
+	private terminalWindows(maxAgeMs: number): WindowInfo[] {
+		const now = performance.now()
+		if (now - this.winEnumAt > maxAgeMs) {
+			this.winEnumCache = listTerminalWindows()
+			this.winEnumAt = now
+		}
+		return this.winEnumCache
 	}
 
 	/**
@@ -80,6 +147,7 @@ export class Orchestrator {
 	 */
 	async start(): Promise<void> {
 		this.daemon.on((e) => this.onDaemonEvent(e))
+		this.daemon.onConnection((up) => void this.onDaemonConnection(up))
 		// Capture the center FIRST (while our WT window is foreground), before any
 		// daemon spawn can momentarily affect window focus. Sizing is deliberately
 		// left to the session path: a NEW session/launcher centers to the default
@@ -90,9 +158,8 @@ export class Orchestrator {
 			this.layout.captureCenter()
 			this.layout.gap = TILE_GAP
 			this.layout.animMs = ANIM_MS
-			this.layout.watch() // follow the center if the user drags/moves it
 		} catch (err) {
-			this.log(`could not set up center window: ${(err as Error).message}`, "error")
+			this.log(`could not set up center window: ${errMessage(err)}`, "error")
 		}
 	}
 
@@ -102,7 +169,7 @@ export class Orchestrator {
 			const rect = this.layout.centerWindow(CENTER_W_FRAC, CENTER_H_FRAC)
 			this.log(`command center ${rect.w}×${rect.h} @ (${rect.x},${rect.y})`)
 		} catch (err) {
-			this.log(`could not size center window: ${(err as Error).message}`, "error")
+			this.log(`could not size center window: ${errMessage(err)}`, "error")
 		}
 	}
 
@@ -113,14 +180,17 @@ export class Orchestrator {
 
 	/** Connect to (or start) the daemon for the current session, and begin persisting. */
 	private async beginSession(): Promise<void> {
-		this.persistTimer = setInterval(() => this.persist(), 2000)
+		this.layout.watch() // follow the center if the user drags/moves it
+		this.persistTimer = setInterval(() => {
+			if (this.layout.consumeDirty()) this.persistNow()
+		}, 2000)
 		this.persist()
 		this.emit({ type: "panes-changed" })
 		try {
 			await this.daemon.ensure(this.sessionId)
 			this.log("session daemon ready")
 		} catch (err) {
-			this.log(`daemon failed to start: ${(err as Error).message}`, "error")
+			this.log(`daemon failed to start: ${errMessage(err)}`, "error")
 		}
 	}
 
@@ -135,21 +205,27 @@ export class Orchestrator {
 		if (!this.hasSession) return
 		const oldIds = [...this.panes.keys()]
 		this.closeSession()
-		for (let i = 0; i < 30; i++) {
-			if (!oldIds.some((id) => findTerminalWindowByExactTitle(id) !== null)) return
-			await sleep(100)
+		for (let i = 0; i < TEARDOWN_POLL_ATTEMPTS; i++) {
+			const titles = new Set(this.terminalWindows(WINDOW_ENUM_TTL_MS).map((w) => w.title))
+			if (!oldIds.some((id) => titles.has(id))) return
+			await sleep(TEARDOWN_POLL_INTERVAL_MS)
 		}
 	}
 
 	/** Start a brand-new session in this window and spawn its first pane. */
 	async newSession(): Promise<void> {
+		return this.serialize(() => this.newSessionCore())
+	}
+
+	private async newSessionCore(): Promise<void> {
 		await this.teardownCurrentSession()
 		this.sizeCenter() // a fresh session gets the default centered command window
-		this.sessionId = generateSessionId()
+		this.sessionId = this.freshSessionId()
 		this.sessionTitle = undefined
+		this.manualTitle = false
 		this.log(`new session: ${this.sessionId}`)
 		await this.beginSession()
-		await this.addPane()
+		await this.addPaneCore()
 	}
 
 	/**
@@ -158,6 +234,10 @@ export class Orchestrator {
 	 * step, so opening from the launcher and switching mid-session behave identically.
 	 */
 	async openSession(id: string): Promise<void> {
+		return this.serialize(() => this.openSessionCore(id))
+	}
+
+	private async openSessionCore(id: string): Promise<void> {
 		const state = loadSession(id)
 		if (!state) {
 			this.log(`no saved session "${id}"`, "warn")
@@ -166,6 +246,7 @@ export class Orchestrator {
 		await this.teardownCurrentSession()
 		this.sessionId = state.id
 		this.sessionTitle = state.title
+		this.manualTitle = state.manualTitle ?? false
 		this.pendingRestore = state
 		this.layout.setCenterRect(state.center)
 		this.log(`opening "${state.id}": ${state.satellites.length} panes`)
@@ -178,6 +259,13 @@ export class Orchestrator {
 	 * pane windows close but the shells stay ALIVE in the daemon (so it can be
 	 * reopened later). Does nothing if no session is active.
 	 */
+	/** UI close action: serialized so it can't interleave with a session transition. */
+	closeSessionAction(): Promise<void> {
+		return this.serialize(async () => {
+			this.closeSession()
+		})
+	}
+
 	closeSession(): void {
 		if (!this.hasSession) return
 		const id = this.sessionId
@@ -186,13 +274,15 @@ export class Orchestrator {
 			this.persistTimer = undefined
 		}
 		this.titler.reset()
-		this.persist() // final save before detaching
+		this.persistNow() // final save before detaching
 		void this.daemon.detachSession(id).catch(() => {})
 		// Reset back to a clean launcher.
+		this.layout.unwatch()
 		this.layout.clearSatellites()
 		this.panes.clear()
 		this.sessionId = ""
 		this.sessionTitle = undefined
+		this.manualTitle = false
 		this.colorIndex = 0
 		this.dirCycleIndex = 0
 		this.pendingRestore = undefined
@@ -204,11 +294,17 @@ export class Orchestrator {
 	 * Delete a saved session (its file + scrollback). If it's the one currently
 	 * open, close it first. Returns true if the session existed.
 	 */
-	deleteSavedSession(id: string): boolean {
+	async deleteSavedSession(id: string): Promise<boolean> {
+		return this.serialize(() => this.deleteSavedSessionCore(id))
+	}
+
+	private async deleteSavedSessionCore(id: string): Promise<boolean> {
 		if (id === this.sessionId) {
-			// Kill the panes first: that closes their windows AND ends the shells,
-			// releasing the daemon's capture-file handles so the scrollback can go.
-			for (const paneId of [...this.panes.keys()]) this.kill(paneId)
+			// Kill the panes first and WAIT: that ends the shells and releases the
+			// daemon's capture-file handles so the scrollback can actually be deleted.
+			await Promise.allSettled(
+				[...this.panes.keys()].map((paneId) => this.daemon.killPane(this.sessionId, paneId)),
+			)
 			this.closeSession()
 		}
 		const ok = deleteSession(id)
@@ -222,27 +318,31 @@ export class Orchestrator {
 		const state = this.pendingRestore
 		if (!state) return
 		this.pendingRestore = undefined
-		for (const s of state.satellites) {
-			try {
-				await this.spawnSatellite({
-					id: s.id,
-					direction: s.direction,
-					color: s.color,
-					cwd: s.cwd,
-					// Re-tile fresh by direction rather than replaying the saved pixel
-					// rect: panes are always auto-placed now, and the saved rects can be
-					// stale/overlapping. Tiling around the restored center is always clean.
-					relaunch: s.foreground, // cold restore: re-open the program that was running
-				})
-				const pane = this.panes.get(s.id) // carry saved metadata forward (daemon will refresh)
-				if (pane) {
-					pane.lastCommand = s.lastCommand
-					pane.foreground = s.foreground
-				}
-			} catch (err) {
-				this.log(`restore failed for "${s.id}": ${(err as Error).message}`, "error")
+		const tasks = state.satellites.map((s) => async () => {
+			await this.spawnSatellite({
+				id: s.id,
+				direction: s.direction,
+				color: s.color,
+				cwd: s.cwd,
+				// Re-tile fresh by direction rather than replaying the saved pixel rect:
+				// panes are auto-placed now and saved rects can be stale/overlapping.
+				relaunch: s.foreground, // cold restore: re-open the program that was running
+			})
+			const pane = this.panes.get(s.id) // carry saved metadata forward (daemon will refresh)
+			if (pane) {
+				pane.lastCommand = s.lastCommand
+				pane.foreground = s.foreground
 			}
-		}
+		})
+		const results = await runPool(RESTORE_CONCURRENCY, tasks)
+		results.forEach((r, i) => {
+			if (r.status === "rejected") {
+				this.log(
+					`restore failed for "${state.satellites[i]?.id}": ${errMessage(r.reason)}`,
+					"error",
+				)
+			}
+		})
 		// Re-assert the exact center rect (in case WT nudged it during launch), then
 		// re-tile every zone cleanly against it so nothing overlaps even if the center
 		// drifted while the panes were spawning.
@@ -252,14 +352,30 @@ export class Orchestrator {
 		// new ones (via `addPane`) get fresh colors and the next zone in turn.
 		this.colorIndex = Math.max(this.colorIndex, state.satellites.length)
 		this.dirCycleIndex = Math.max(this.dirCycleIndex, state.satellites.length)
-		this.persist()
+		this.persistNow()
 		this.log(`restored session "${this.sessionId}"`)
 		// Refresh the title from the restored panes' (now live) scrollback.
 		this.titler.schedule()
 	}
 
-	/** Write the current layout to the session file. */
+	private persistDebounce?: ReturnType<typeof setTimeout>
+	private lastPersistJson?: string
+
+	/** Schedule a coalesced, trailing save (many rapid events → one write). */
 	private persist(): void {
+		if (this.persistDebounce) return
+		this.persistDebounce = setTimeout(() => {
+			this.persistDebounce = undefined
+			this.persistNow()
+		}, 300)
+	}
+
+	/** Write the current layout to the session file now, skipping an unchanged save. */
+	private persistNow(): void {
+		if (this.persistDebounce) {
+			clearTimeout(this.persistDebounce)
+			this.persistDebounce = undefined
+		}
 		if (!this.sessionId) return
 		try {
 			const snap = this.layout.snapshot()
@@ -275,9 +391,19 @@ export class Orchestrator {
 					rect: s.rect,
 				}
 			})
+			const comparable = JSON.stringify({
+				id: this.sessionId,
+				title: this.sessionTitle,
+				manualTitle: this.manualTitle,
+				center: snap.center,
+				satellites,
+			})
+			if (comparable === this.lastPersistJson) return
+			this.lastPersistJson = comparable
 			saveSession({
 				id: this.sessionId,
 				title: this.sessionTitle,
+				manualTitle: this.manualTitle || undefined,
 				updatedAt: new Date().toISOString(),
 				center: snap.center,
 				satellites,
@@ -287,14 +413,69 @@ export class Orchestrator {
 		}
 	}
 
+	private reopening = false
+	private prevDaemonPid?: number
+	private lastReopenAt = 0
+
+	/** React to the daemon link dropping/restoring: reattach the session on recovery. */
+	private async onDaemonConnection(up: boolean): Promise<void> {
+		if (!up) {
+			this.prevDaemonPid = this.daemon.connectedPid
+			this.log("session daemon disconnected — reconnecting…", "warn")
+			return
+		}
+		if (!this.hasSession || this.reopening) return
+		const action = reconnectDecision(
+			this.prevDaemonPid,
+			this.daemon.connectedPid,
+			this.lastReopenAt,
+			performance.now(),
+		)
+		if (action === "skip") return
+		if (action === "resync") {
+			this.log("session daemon reconnected — resyncing", "warn")
+			await this.resyncSession()
+			return
+		}
+		this.reopening = true
+		this.lastReopenAt = performance.now()
+		this.log("session daemon reconnected — reattaching", "warn")
+		try {
+			await this.openSession(this.sessionId)
+		} catch (err) {
+			this.log(`reconnect reattach failed: ${errMessage(err)}`, "error")
+		} finally {
+			this.reopening = false
+		}
+	}
+
+	private async resyncSession(): Promise<void> {
+		try {
+			const { panes } = await this.daemon.getState(this.sessionId)
+			for (const s of panes) {
+				const pane = this.panes.get(s.pane)
+				if (!pane) continue
+				if (s.pid !== undefined) {
+					pane.pid = s.pid
+					pane.status = "connected"
+				}
+				if (s.cwd !== undefined) pane.cwd = s.cwd
+				if (s.lastCommand !== undefined) pane.lastCommand = s.lastCommand
+				pane.foreground = s.foreground
+			}
+			this.emit({ type: "panes-changed" })
+		} catch (err) {
+			this.log(`resync failed: ${errMessage(err)}`, "error")
+		}
+	}
+
 	/** Per-pane state pushed by the daemon (cwd/lastCommand/foreground/pid) and exits. */
 	private onDaemonEvent(e: ControlEvent): void {
 		if (e.session !== this.sessionId) return
 		if (e.event === "paneExited") {
-			const pane = this.panes.get(e.pane)
-			if (pane) pane.status = "exited"
 			if (this.layout.has(e.pane)) this.layout.remove(e.pane)
-			this.log(`pane "${e.pane}" shell exited`, "warn")
+			this.panes.delete(e.pane)
+			this.log(`pane "${e.pane}" shell exited — removed from session`, "warn")
 			this.emit({ type: "panes-changed" })
 			this.persist()
 			return
@@ -342,10 +523,17 @@ export class Orchestrator {
 		if (newCommand) this.titler.schedule()
 	}
 
-	/** A unique soldier name for a new pane (avoids existing panes + the session). */
+	/** A unique soldier name for a new pane (avoids existing panes, the session, and open windows). */
 	private nextId(): string {
 		const taken = new Set<string>(this.panes.keys())
 		taken.add(this.sessionId)
+		for (const w of this.terminalWindows(WINDOW_ENUM_TTL_MS)) taken.add(w.title)
+		return pickUniqueName(taken)
+	}
+
+	private freshSessionId(): string {
+		const taken = new Set<string>(listSessionNames())
+		for (const w of this.terminalWindows(WINDOW_ENUM_TTL_MS)) taken.add(w.title)
 		return pickUniqueName(taken)
 	}
 
@@ -371,6 +559,10 @@ export class Orchestrator {
 	 * thin client attached to it, tiled via Win32 so the center never moves.
 	 */
 	async addPane(opts: { cwd?: string } = {}): Promise<string | null> {
+		return this.serialize(() => this.addPaneCore(opts))
+	}
+
+	private async addPaneCore(opts: { cwd?: string } = {}): Promise<string | null> {
 		if (!this.hasSession) {
 			this.log("no active session — press n to start one", "warn")
 			return null
@@ -421,21 +613,25 @@ export class Orchestrator {
 			const origin = spec.rect
 				? { x: spec.rect.x, y: spec.rect.y }
 				: this.layout.zoneOrigin(direction)
+			const wantTitle = satelliteTitle(id)
 			await spawnWindow({
 				commandline: this.clientCommandline(id),
 				cwd,
-				title: satelliteTitle(id),
+				title: wantTitle,
 				tabColor: useTab ? spec.color : undefined,
 				pos: origin,
-				size: { cols: 80, rows: 24 },
+				size: { cols: SPAWN_COLS, rows: SPAWN_ROWS },
 			})
 
-			// The window appears asynchronously; poll for its HWND by title.
+			// The window appears asynchronously; poll for its HWND by title with a
+			// short backoff up to a ~5s deadline (so concurrent restores don't serialize).
 			let hwnd: Hwnd | null = null
-			for (let i = 0; i < 50; i++) {
-				hwnd = findTerminalWindowByExactTitle(satelliteTitle(id))
+			const deadline = performance.now() + WINDOW_FIND_TIMEOUT_MS
+			for (let i = 0; performance.now() < deadline; i++) {
+				hwnd =
+					this.terminalWindows(WINDOW_ENUM_TTL_MS).find((w) => w.title === wantTitle)?.hwnd ?? null
 				if (hwnd) break
-				await sleep(100)
+				await sleep(Math.min(WINDOW_POLL_STEP_MS * (i + 1), WINDOW_POLL_MAX_MS))
 			}
 			if (!hwnd) throw new Error("window did not appear (title not found)")
 
@@ -450,54 +646,9 @@ export class Orchestrator {
 		} catch (err) {
 			this.panes.delete(id)
 			this.emit({ type: "panes-changed" })
-			this.log(`failed to spawn window: ${(err as Error).message}`, "error")
+			this.log(`failed to spawn window: ${errMessage(err)}`, "error")
 			throw err
 		}
-	}
-
-	/** Open a new (untiled) tab running a daemon-backed pane. Not restored. */
-	async openTab(opts: { cwd?: string } = {}): Promise<string> {
-		const id = this.nextId()
-		this.panes.set(id, { id, kind: "tab", status: "spawning", createdAt: performance.now() })
-		this.emit({ type: "panes-changed" })
-		await this.daemon.createPane(this.sessionId, id, { cwd: opts.cwd })
-		await spawnTab({ commandline: this.clientCommandline(id), cwd: opts.cwd, title: id })
-		this.log(`spawned tab "${id}"`)
-		return id
-	}
-
-	/** Open a new (untiled) free window running a daemon-backed pane. Not restored. */
-	async openWindow(
-		opts: {
-			cwd?: string
-			pos?: { x: number; y: number }
-			size?: { cols: number; rows: number }
-		} = {},
-	): Promise<string> {
-		const id = this.nextId()
-		this.panes.set(id, { id, kind: "window", status: "spawning", createdAt: performance.now() })
-		this.emit({ type: "panes-changed" })
-		await this.daemon.createPane(this.sessionId, id, { cwd: opts.cwd })
-		await spawnWindow({
-			commandline: this.clientCommandline(id),
-			cwd: opts.cwd,
-			pos: opts.pos,
-			size: opts.size,
-			title: id,
-		})
-		this.log(`spawned window "${id}"`)
-		return id
-	}
-
-	/** Kill a pane's shell in the daemon (truly gone) and forget it. */
-	kill(paneId: string): boolean {
-		if (!this.panes.has(paneId)) {
-			this.log(`no pane "${paneId}"`, "warn")
-			return false
-		}
-		void this.daemon.killPane(this.sessionId, paneId).catch(() => {})
-		this.log(`killing pane "${paneId}"`)
-		return true
 	}
 
 	list(): ManagedPane[] {
@@ -516,9 +667,28 @@ export class Orchestrator {
 		this.stopped = true
 		if (this.persistTimer) clearInterval(this.persistTimer)
 		this.titler.stopTimer()
-		this.persist()
+		this.persistNow()
 		this.layout.unwatch()
 		void this.daemon.detachSession(this.sessionId).catch(() => {})
 		this.daemon.stop()
+	}
+
+	/**
+	 * Async teardown for the normal exit path: persist, detach the session, and
+	 * release the native title model — awaiting each so the daemon is actually told
+	 * to detach and the model is freed before the process exits. Idempotent; `stop()`
+	 * remains the sync last-resort used by the process "exit" hook.
+	 */
+	async shutdown(): Promise<void> {
+		if (this.stopped) return
+		this.stopped = true
+		if (this.persistTimer) clearInterval(this.persistTimer)
+		this.persistNow()
+		this.layout.unwatch()
+		try {
+			await this.daemon.detachSession(this.sessionId)
+		} catch {}
+		this.daemon.stop()
+		await this.titler.dispose()
 	}
 }

@@ -53,4 +53,10 @@ export class SessionTitler {
 		if (this.timer) clearTimeout(this.timer)
 		void disposeTitleModel()
 	}
+
+	/** Cancel the pending timer and await releasing the model (awaited teardown). */
+	async dispose(): Promise<void> {
+		if (this.timer) clearTimeout(this.timer)
+		await disposeTitleModel()
+	}
 }

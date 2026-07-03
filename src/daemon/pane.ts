@@ -1,6 +1,6 @@
 import { existsSync, rmSync } from "node:fs"
 import type { Socket, Subprocess } from "bun"
-import { AGENT_SHELL, RESTORE_PROGRAMS, SCROLLBACK_LINES } from "../core/config"
+import { agentShell, RESTORE_PROGRAMS, SCROLLBACK_LINES, SEED_TIMEOUT_MS } from "../core/config"
 import type {
 	AttachClientMsg,
 	ControlEvent,
@@ -8,12 +8,15 @@ import type {
 	Hello,
 	PaneState,
 } from "../core/daemonProtocol"
-import type { LineDecoder } from "../core/protocol"
+import { encode, type LineDecoder } from "../core/protocol"
 import { scrollbackPath } from "../core/session"
-import { foregroundProgram } from "../platform/proctree"
+import { createPaneJob, type PaneJob } from "../platform/job"
 import { CaptureWriter } from "./capture"
 import { reconstructScreen } from "./replay"
+import type { SocketWriter } from "./socketWriter"
 import { CommandLineTracker, TitleStripper } from "./vt"
+
+const seedEncoder = new TextEncoder()
 
 export const isPwsh = (shell: string) => /pwsh|powershell/i.test(shell)
 
@@ -23,6 +26,7 @@ export const PROMPT_CWD_REPORT =
 
 export interface SockState {
 	decoder: LineDecoder<Hello | ControlRequest | AttachClientMsg>
+	writer?: SocketWriter
 	kind?: "control" | "attach"
 	paneKey?: string
 	/** For a control connection: the session its orchestrator owns. */
@@ -31,7 +35,6 @@ export interface SockState {
 
 export interface PaneOpts {
 	cwd?: string
-	shell?: string
 	/** Cold restore: reconstruct the saved capture into the buffer before the shell. */
 	replay?: boolean
 	/** Cold restore: re-launch this whitelisted foreground program once up. */
@@ -42,6 +45,7 @@ export interface PaneOpts {
 export class Pane {
 	readonly term: Bun.Terminal
 	private readonly child: Subprocess
+	private job: PaneJob | null
 	private readonly stripper: TitleStripper
 	private readonly commands = new CommandLineTracker()
 	private readonly writer: CaptureWriter | null
@@ -49,13 +53,24 @@ export class Pane {
 	private readonly ring: Uint8Array[] = []
 	private ringBytes = 0
 	private static readonly RING_MAX = 1024 * 1024
-	private fgTimer?: ReturnType<typeof setInterval>
+	private static readonly HELD_MAX = 1024 * 1024
+	private static readonly ATTACH_ACK = encode({ ok: true })
 	private lastFg: string | null | undefined
 	/** True while detachAll() is closing windows on purpose (don't treat as a user close). */
 	private detaching = false
 	/** Set when the user closed this pane's window → kill + delete its scrollback. */
 	private purged = false
+	/** While a cold-restore seed is still being reconstructed, live output is held. */
+	private pendingSeed = false
+	private seedDone = false
+	private readonly heldOutput: Uint8Array[] = []
+	private heldBytes = 0
 	readonly state: PaneState
+
+	/** A pane is alive only while its shell process is actually running. */
+	get alive(): boolean {
+		return this.state.live && this.child.exitCode === null && !this.child.killed
+	}
 
 	constructor(
 		readonly session: string,
@@ -64,7 +79,7 @@ export class Pane {
 		private readonly onEvent: (e: ControlEvent) => void,
 		private readonly onExit: (purged: boolean) => void,
 	) {
-		const shell = opts.shell ?? AGENT_SHELL
+		const shell = agentShell()
 		const cwd = opts.cwd
 		const capture = scrollbackPath(session, pane)
 		this.state = { pane, cwd, live: true }
@@ -75,19 +90,24 @@ export class Pane {
 		const cols = 80
 		const rows = 24
 		if (opts.replay && existsSync(capture)) {
-			// reconstructScreen is async; seed synchronously-ish via a fire-and-forget.
-			reconstructScreen(capture, cols, rows, SCROLLBACK_LINES)
-				.then((screen) => {
-					if (!screen) return
-					const seed = new TextEncoder().encode(
+			this.pendingSeed = true
+			const finishSeed = (screen: string | null) => {
+				if (this.seedDone) return
+				this.seedDone = true
+				if (screen) {
+					const seed = seedEncoder.encode(
 						`${screen}\r\n\x1b[2m──────── restored ────────\x1b[0m\r\n`,
 					)
-					// Prepend to the ring and push to any already-attached clients.
 					this.ring.unshift(seed)
 					this.ringBytes += seed.byteLength
-					for (const c of this.clients) c.write(seed)
-				})
-				.catch(() => {})
+					for (const c of this.clients) c.data.writer?.write(seed)
+				}
+				this.flushHeld()
+			}
+			reconstructScreen(capture, cols, rows, SCROLLBACK_LINES)
+				.then(finishSeed)
+				.catch(() => finishSeed(null))
+			setTimeout(() => finishSeed(null), SEED_TIMEOUT_MS)
 		}
 
 		this.stripper = new TitleStripper({
@@ -108,9 +128,12 @@ export class Pane {
 			name: "xterm-256color",
 			data: (_t, chunk) => {
 				const clean = this.stripper.push(chunk)
-				this.pushRing(clean)
-				this.writer?.write(clean)
-				for (const c of this.clients) c.write(clean)
+				if (clean.byteLength === 0) return
+				if (this.pendingSeed) {
+					this.pushHeld(clean)
+					return
+				}
+				this.handleOutput(clean)
 			},
 		})
 
@@ -121,6 +144,11 @@ export class Pane {
 			onExit: () => this.dispose(),
 		})
 		this.state.pid = this.child.pid
+		this.job = createPaneJob()
+		if (this.job && this.child.pid !== undefined && !this.job.assign(this.child.pid)) {
+			this.job.terminate()
+			this.job = null
+		}
 
 		if (
 			opts.relaunch &&
@@ -132,16 +160,36 @@ export class Pane {
 				if (this.state.live) this.term.write(`${prog}\r`)
 			}, 800)
 		}
+	}
 
-		this.fgTimer = setInterval(() => {
-			if (!this.state.live) return
-			const name = foregroundProgram(this.child.pid, RESTORE_PROGRAMS)
-			if (name !== this.lastFg) {
-				this.lastFg = name
-				this.state.foreground = name ?? undefined
-				this.emitState()
-			}
-		}, 2000)
+	/** Called by the daemon's shared foreground scan with this pane's resolved program. */
+	updateForeground(name: string | null): void {
+		if (!this.alive || name === this.lastFg) return
+		this.lastFg = name
+		this.state.foreground = name ?? undefined
+		this.emitState()
+	}
+
+	private handleOutput(clean: Uint8Array): void {
+		this.pushRing(clean)
+		this.writer?.write(clean)
+		for (const c of this.clients) c.data.writer?.write(clean)
+	}
+
+	private pushHeld(chunk: Uint8Array): void {
+		this.heldOutput.push(chunk)
+		this.heldBytes += chunk.byteLength
+		while (this.heldBytes > Pane.HELD_MAX && this.heldOutput.length > 1) {
+			const dropped = this.heldOutput.shift()
+			if (dropped) this.heldBytes -= dropped.byteLength
+		}
+	}
+
+	private flushHeld(): void {
+		this.pendingSeed = false
+		this.heldBytes = 0
+		const held = this.heldOutput.splice(0)
+		for (const chunk of held) this.handleOutput(chunk)
 	}
 
 	private pushRing(chunk: Uint8Array): void {
@@ -163,7 +211,8 @@ export class Pane {
 		// A fresh attach (e.g. a restore) clears any prior "detaching" intent so a
 		// later genuine window-close is recognized as a user close.
 		this.detaching = false
-		for (const chunk of this.ring) sock.write(chunk)
+		sock.data.writer?.write(Pane.ATTACH_ACK)
+		for (const chunk of this.ring) sock.data.writer?.write(chunk)
 		this.clients.add(sock)
 		this.resize(cols, rows)
 	}
@@ -214,25 +263,35 @@ export class Pane {
 	}
 
 	kill(): void {
-		try {
-			this.child.kill()
-		} catch {}
+		if (this.job) {
+			this.job.terminate()
+			this.job = null
+		} else {
+			try {
+				this.child.kill()
+			} catch {}
+		}
 		this.dispose()
 	}
 
 	private disposed = false
+	flushed: Promise<void> = Promise.resolve()
 	private dispose(): void {
 		if (this.disposed) return
 		this.disposed = true
 		this.state.live = false
-		if (this.fgTimer) clearInterval(this.fgTimer)
-		this.writer?.close()
-		// User-closed pane: drop its scrollback capture now that the writer's handle
-		// is released (so the file isn't locked on Windows).
+		if (this.job) {
+			this.job.terminate()
+			this.job = null
+		}
+		const closed = this.writer ? this.writer.close() : Promise.resolve()
+		this.flushed = closed
 		if (this.purged) {
-			try {
-				rmSync(scrollbackPath(this.session, this.pane), { force: true })
-			} catch {}
+			void closed.then(() => {
+				try {
+					rmSync(scrollbackPath(this.session, this.pane), { force: true })
+				} catch {}
+			})
 		}
 		try {
 			this.term.close()

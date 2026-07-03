@@ -59,6 +59,50 @@ describe("TitleStripper", () => {
 	test("does NOT strip clears by default", () => {
 		expect(strip("\x1b[2J\x1b[Hkeep")).toBe("\x1b[2J\x1b[Hkeep")
 	})
+
+	test("returns an owned copy, not a view aliasing the input chunk", () => {
+		const input = enc("live output")
+		const out = new TitleStripper().push(input)
+		input.fill(0)
+		expect(dec(out)).toBe("live output")
+	})
+
+	test("owns pass-through spans when a chunk mixes text and escapes", () => {
+		const input = enc("red\x1b[0mtail")
+		const out = new TitleStripper().push(input)
+		input.fill(0)
+		expect(dec(out)).toBe("red\x1b[0mtail")
+	})
+
+	test("preserves a large ESC-free chunk exactly", () => {
+		const big = "x".repeat(200_000)
+		expect(strip(big)).toBe(big)
+	})
+
+	test("keeps CSI intact when the sequence is split across chunks", () => {
+		const s = new TitleStripper()
+		expect(dec(s.push(enc("A\x1b[3")))).toBe("A")
+		expect(dec(s.push(enc("1mB")))).toBe("\x1b[31mB")
+	})
+
+	test("keeps CSI intact when split across three chunks", () => {
+		const s = new TitleStripper()
+		expect(dec(s.push(enc("A\x1b")))).toBe("A")
+		expect(dec(s.push(enc("[38;2;255;")))).toBe("")
+		expect(dec(s.push(enc("128;0mB")))).toBe("\x1b[38;2;255;128;0mB")
+	})
+
+	test("flushes an oversized OSC verbatim instead of dropping it", () => {
+		const payload = "z".repeat(9000)
+		const seq = `\x1b]0;${payload}\x07tail`
+		const out = strip(seq)
+		expect(out).toContain(payload)
+		expect(out.endsWith("tail")).toBe(true)
+	})
+
+	test("interleaves passthrough, OSC title, and CSI color correctly", () => {
+		expect(strip("a\x1b]0;t\x07b\x1b[31mc\x1b[0md")).toBe("ab\x1b[31mc\x1b[0md")
+	})
 })
 
 describe("TitleStripper startup-clear suppression", () => {

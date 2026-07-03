@@ -1,43 +1,16 @@
 /**
- * Wire protocol between the hub (central app) and the agents (one per pane).
+ * Newline-delimited JSON framing shared by every ordo socket connection.
  *
- * Framing: newline-delimited JSON. Each message is a single JSON object on its
- * own line. This is trivial to produce/parse in Bun and survives partial reads.
+ * Each message is a single JSON object on its own line — trivial to produce and
+ * parse in Bun, and it survives partial reads. `encode` frames one message;
+ * `LineDecoder` reassembles a byte stream back into whole messages.
  */
 
-/** Messages an agent sends UP to the hub. */
-export type AgentMessage =
-	/** Sent once on connect so the hub can map this socket to a pane id. */
-	| { type: "hello"; paneId: string; pid: number }
-	/** Acknowledges a command was handed to the pane's shell. */
-	| { type: "ack"; paneId: string; ofType: HubMessage["type"] }
-	/** A line of output the agent chose to forward (optional, best-effort). */
-	| { type: "output"; paneId: string; data: string }
-	/** A command line the user typed directly into the pane (for the session browser). */
-	| { type: "command"; paneId: string; text: string }
-	/** The pane's current working directory, reported by the shell via OSC 9;9. */
-	| { type: "cwd"; paneId: string; path: string }
-	/**
-	 * The foreground program currently running in the pane (best-effort), so the
-	 * orchestrator can persist it and relaunch it on restore. `name` is null when
-	 * the pane is sitting at a bare shell prompt.
-	 */
-	| { type: "foreground"; paneId: string; name: string | null; cwd?: string }
-	/** The agent's shell (or the agent) is exiting. */
-	| { type: "exit"; paneId: string; code: number }
-
-/** Messages the hub sends DOWN to an agent. */
-export type HubMessage =
-	/** Run a command line in the pane's shell (a newline is appended). */
-	| { type: "run"; command: string }
-	/** Write raw input to the shell's stdin verbatim (no newline added). */
-	| { type: "input"; data: string }
-	/** Ask the agent to shut its shell and exit cleanly. */
-	| { type: "shutdown" }
+const lineEncoder = new TextEncoder()
 
 /** Frame any JSON-serializable message as a single newline-terminated line. */
 export function encode(msg: object): Uint8Array {
-	return new TextEncoder().encode(`${JSON.stringify(msg)}\n`)
+	return lineEncoder.encode(`${JSON.stringify(msg)}\n`)
 }
 
 /**
@@ -46,17 +19,37 @@ export function encode(msg: object): Uint8Array {
  */
 export class LineDecoder<T> {
 	private buffer = ""
+	private scanned = 0
 	private readonly decoder = new TextDecoder()
+
+	constructor(
+		private readonly maxLine = 1 << 20,
+		private readonly onDrop?: (line: string) => void,
+	) {}
 
 	push(chunk: Uint8Array): T[] {
 		this.buffer += this.decoder.decode(chunk, { stream: true })
 		const out: T[] = []
-		let newline = this.buffer.indexOf("\n")
+		let start = 0
+		let newline = this.buffer.indexOf("\n", this.scanned)
 		while (newline !== -1) {
-			const line = this.buffer.slice(0, newline).trim()
-			this.buffer = this.buffer.slice(newline + 1)
-			if (line) out.push(JSON.parse(line) as T)
-			newline = this.buffer.indexOf("\n")
+			const line = this.buffer.slice(start, newline).trim()
+			start = newline + 1
+			if (line) {
+				try {
+					out.push(JSON.parse(line) as T)
+				} catch {
+					this.onDrop?.(line)
+				}
+			}
+			newline = this.buffer.indexOf("\n", start)
+		}
+		if (start > 0) this.buffer = this.buffer.slice(start)
+		this.scanned = this.buffer.length
+		if (this.buffer.length > this.maxLine) {
+			this.buffer = ""
+			this.scanned = 0
+			throw new Error("line overflow")
 		}
 		return out
 	}

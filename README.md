@@ -48,6 +48,14 @@ bun link           # install the `ordo` command globally (symlinked to this sour
 already on PATH if Bun is installed normally). Because it's a symlink to this
 source, edits take effect immediately — no reinstall.
 
+To remove it, run the standalone uninstaller (it stops the daemon, `bun unlink`s
+the command, and deletes `%APPDATA%\ordo`):
+
+```powershell
+.\scripts\uninstall.ps1             # remove ordo and its data
+.\scripts\uninstall.ps1 -KeepData   # remove the command but keep saved sessions
+```
+
 Then, from anywhere:
 
 ```powershell
@@ -312,7 +320,7 @@ it never disturbs the terminal you launched it from.
 
 | Variable                   | Default       | Purpose                                   |
 | -------------------------- | ------------- | ----------------------------------------- |
-| `ORDO_CENTER_W`   | `0.40`        | Center width as a fraction of screen      |
+| `ORDO_CENTER_W`   | `0.48`        | Center width as a fraction of screen      |
 | `ORDO_CENTER_H`   | `0.50`        | Center height as a fraction of screen     |
 | `ORDO_GAP`        | `2`           | Pixel gap between windows                  |
 | `ORDO_MIN_W`      | `480`         | Min window width (WT's floor is ~476)     |
@@ -329,6 +337,10 @@ it never disturbs the terminal you launched it from.
 | `ORDO_TITLE_MODEL`| Supra-Title-350M Q4 | Title model URI/path (any `node-llama-cpp` model URI) |
 | `ORDO_TITLE_DEBOUNCE` | `15000`   | Delay (ms) after activity settles before retitling |
 | `ORDO_MODELS_DIR` | `%APPDATA%\ordo\models` | Where the title model GGUF is cached |
+
+> Numeric values are clamped to sane ranges (e.g. `ORDO_CENTER_W` 0.1–0.9,
+> `ORDO_GAP` 0–64, `ORDO_ANIM_MS` 0–2000); out-of-range or non-numeric values
+> fall back to the default.
 
 > Windows-only: the tiling uses `user32.dll` (`EnumWindows`, `SetWindowPos`,
 > `GetMonitorInfo`) and foreground detection uses `kernel32.dll` (Toolhelp
@@ -352,7 +364,7 @@ src/app/title.ts           # local session titling: gather pane activity → Sup
 src/daemon/daemon.ts       # persistent windowless daemon: TCP server, warm/cold restore, entry
 src/daemon/pane.ts         # one live pane: shell + ConPTY, ring buffer, attached clients
 src/daemon/capture.ts      # append-only raw-VT capture file with tail compaction
-src/daemon/client.ts       # thin per-pane process: pipes stdin/stdout to the daemon (no shell)
+src/daemon/attachClient.ts # thin per-pane process: pipes stdin/stdout to the daemon (no shell)
 src/daemon/daemonClient.ts # orchestrator-side daemon RPC + hidden Start-Process spawn/discovery
 src/daemon/replay.ts       # reconstructs a pane's screen from its raw-VT capture (cold restore)
 src/daemon/vt.ts           # title-strip (OSC 0/1/2), startup-clear suppress, OSC 9;9 cwd, command capture

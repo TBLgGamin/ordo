@@ -12,12 +12,20 @@
 
 import { dlopen, FFIType, type Pointer, ptr } from "bun:ffi"
 
-const kernel32 = dlopen("kernel32.dll", {
-	CreateToolhelp32Snapshot: { args: [FFIType.u32, FFIType.u32], returns: FFIType.ptr },
-	Process32FirstW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
-	Process32NextW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
-	CloseHandle: { args: [FFIType.ptr], returns: FFIType.bool },
-})
+function loadKernel32() {
+	try {
+		return dlopen("kernel32.dll", {
+			CreateToolhelp32Snapshot: { args: [FFIType.u32, FFIType.u32], returns: FFIType.ptr },
+			Process32FirstW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
+			Process32NextW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
+			CloseHandle: { args: [FFIType.ptr], returns: FFIType.bool },
+		})
+	} catch {
+		return null
+	}
+}
+
+const kernel32 = loadKernel32()
 
 const TH32CS_SNAPPROCESS = 0x00000002
 
@@ -29,7 +37,7 @@ const OFF_PPID = 32
 const OFF_EXE = 44
 const MAX_PATH = 260
 
-interface ProcInfo {
+export interface ProcInfo {
 	pid: number
 	ppid: number
 	/** Lowercased image name without the trailing ".exe" (e.g. "vim", "pwsh"). */
@@ -47,10 +55,11 @@ function readExeName(view: DataView): string {
 }
 
 /** Snapshot every process as { pid, ppid, name }. Empty array on any failure. */
-function snapshotProcesses(): ProcInfo[] {
+export function snapshotProcesses(): ProcInfo[] {
+	if (!kernel32) return []
 	const snap = kernel32.symbols.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) as Pointer | null
-	// INVALID_HANDLE_VALUE (-1) or null → bail.
-	if (!snap) return []
+	// INVALID_HANDLE_VALUE (-1, in number or bigint form) or null → bail.
+	if (!snap || snap === -1 || (snap as unknown as bigint) === -1n) return []
 	const out: ProcInfo[] = []
 	try {
 		const buf = new ArrayBuffer(PE_SIZE)
@@ -74,29 +83,34 @@ function snapshotProcesses(): ProcInfo[] {
 	return out
 }
 
-/**
- * The deepest descendant of `rootPid` whose name is in `whitelist`, or null if
- * none. "Deepest" so that, e.g., `pwsh → git → less` reports `less`.
- */
-export function foregroundProgram(rootPid: number, whitelist: ReadonlySet<string>): string | null {
-	if (whitelist.size === 0) return null
-	const procs = snapshotProcesses()
-	if (procs.length === 0) return null
-
+/** Group a process snapshot into a parent-pid → children index (reused across panes). */
+export function buildProcessIndex(procs: ProcInfo[]): Map<number, ProcInfo[]> {
 	const childrenByParent = new Map<number, ProcInfo[]>()
 	for (const p of procs) {
 		const arr = childrenByParent.get(p.ppid)
 		if (arr) arr.push(p)
 		else childrenByParent.set(p.ppid, [p])
 	}
+	return childrenByParent
+}
 
+/**
+ * The deepest descendant of `rootPid` whose name is in `whitelist`, or null if
+ * none. "Deepest" so that, e.g., `pwsh → git → less` reports `less`.
+ */
+export function deepestWhitelisted(
+	index: Map<number, ProcInfo[]>,
+	rootPid: number,
+	whitelist: ReadonlySet<string>,
+): string | null {
+	if (whitelist.size === 0) return null
 	let best: string | null = null
 	let bestDepth = -1
 	const visited = new Set<number>()
 	const walk = (pid: number, depth: number): void => {
-		if (visited.has(pid)) return // guard against pid-reuse cycles
+		if (visited.has(pid)) return
 		visited.add(pid)
-		for (const child of childrenByParent.get(pid) ?? []) {
+		for (const child of index.get(pid) ?? []) {
 			if (whitelist.has(child.name) && depth > bestDepth) {
 				best = child.name
 				bestDepth = depth

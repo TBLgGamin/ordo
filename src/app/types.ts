@@ -7,11 +7,35 @@ export function satelliteTitle(id: string): string {
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** Run tasks with bounded concurrency, preserving input order in the results. */
+export async function runPool<T>(
+	limit: number,
+	tasks: Array<() => Promise<T>>,
+): Promise<Array<PromiseSettledResult<T>>> {
+	const results = new Array<PromiseSettledResult<T>>(tasks.length)
+	let next = 0
+	const worker = async (): Promise<void> => {
+		while (true) {
+			const i = next++
+			if (i >= tasks.length) return
+			const task = tasks[i]
+			if (!task) return
+			try {
+				results[i] = { status: "fulfilled", value: await task() }
+			} catch (reason) {
+				results[i] = { status: "rejected", reason }
+			}
+		}
+	}
+	await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker))
+	return results
+}
+
 export type PaneStatus = "spawning" | "connected" | "exited"
 
 export interface ManagedPane {
 	id: string
-	kind: "pane" | "tab" | "window"
+	kind: "tab" | "window"
 	direction?: Direction
 	status: PaneStatus
 	pid?: number

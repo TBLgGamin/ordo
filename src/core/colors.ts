@@ -40,8 +40,9 @@ export function paletteColor(index: number): string {
 	return hslToHex(hue, PASTEL_S, PASTEL_L)
 }
 
-function parseHex(hex: string): { r: number; g: number; b: number } {
+export function parseHex(hex: string): { r: number; g: number; b: number } | null {
 	const h = hex.replace("#", "")
+	if (!/^[0-9a-fA-F]{6}$/.test(h)) return null
 	return {
 		r: Number.parseInt(h.slice(0, 2), 16),
 		g: Number.parseInt(h.slice(2, 4), 16),
@@ -63,12 +64,14 @@ function toHex(r: number, g: number, b: number): string {
  */
 export function lightTint(hex: string, amount = 0.62): string {
 	const c = parseHex(hex)
+	if (!c) return hex
 	const mix = (x: number) => x + (255 - x) * amount
 	return toHex(mix(c.r), mix(c.g), mix(c.b))
 }
 
-/** A 24-bit ANSI foreground escape for `hex` (for coloring terminal text). */
+/** A 24-bit ANSI foreground escape for `hex` (empty string for a malformed hex). */
 export function ansiFg(hex: string): string {
-	const { r, g, b } = parseHex(hex)
-	return `\x1b[38;2;${r};${g};${b}m`
+	const c = parseHex(hex)
+	if (!c) return ""
+	return `\x1b[38;2;${c.r};${c.g};${c.b}m`
 }

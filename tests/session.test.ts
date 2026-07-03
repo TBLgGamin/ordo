@@ -115,4 +115,80 @@ describe("title", () => {
 		saveSession(state)
 		expect(loadSession("aquilifer")?.title).toBe("Fixing The Sidebar")
 	})
+
+	test("round-trips a manual title flag", () => {
+		const state: SessionState = { ...sample("optio2"), title: "My Title", manualTitle: true }
+		saveSession(state)
+		const loaded = loadSession("optio2")
+		expect(loaded?.title).toBe("My Title")
+		expect(loaded?.manualTitle).toBe(true)
+	})
+
+	test("drops a non-boolean manualTitle", () => {
+		writeFileSync(
+			join(sessionsDir(), "badflag.json"),
+			JSON.stringify({
+				id: "badflag",
+				updatedAt: "t",
+				center: { x: 0, y: 0, w: 1, h: 1 },
+				satellites: [],
+				manualTitle: "yes",
+			}),
+		)
+		expect(loadSession("badflag")?.manualTitle).toBeUndefined()
+	})
+})
+
+describe("loadSession validation", () => {
+	const writeRaw = (name: string, json: string) => {
+		writeFileSync(join(sessionsDir(), `${name}.json`), json)
+	}
+
+	test("returns null for a JSON array", () => {
+		writeRaw("bad-array", "[]")
+		expect(loadSession("bad-array")).toBeNull()
+	})
+
+	test("returns null when id is missing", () => {
+		writeRaw("no-id", JSON.stringify({ satellites: [], center: { x: 0, y: 0, w: 1, h: 1 } }))
+		expect(loadSession("no-id")).toBeNull()
+	})
+
+	test("returns null when satellites is not an array", () => {
+		writeRaw("bad-sats", JSON.stringify({ id: "x", satellites: {}, center: { x: 0, y: 0, w: 1, h: 1 } }))
+		expect(loadSession("bad-sats")).toBeNull()
+	})
+
+	test("returns null when center is not a rect", () => {
+		writeRaw("bad-center", JSON.stringify({ id: "x", satellites: [], center: null }))
+		expect(loadSession("bad-center")).toBeNull()
+	})
+
+	test("filters out malformed satellite entries", () => {
+		writeRaw(
+			"mixed-sats",
+			JSON.stringify({
+				id: "x",
+				updatedAt: "t",
+				center: { x: 0, y: 0, w: 1, h: 1 },
+				satellites: [
+					{ id: "ok", direction: "left", rect: { x: 0, y: 0, w: 1, h: 1 } },
+					{ id: "bad-dir", direction: "sideways", rect: { x: 0, y: 0, w: 1, h: 1 } },
+					{ id: "no-rect", direction: "right" },
+					"not-an-object",
+				],
+			}),
+		)
+		const loaded = loadSession("mixed-sats")
+		expect(loaded?.satellites).toHaveLength(1)
+		expect(loaded?.satellites[0]?.id).toBe("ok")
+	})
+})
+
+describe("saveSession atomicity", () => {
+	test("leaves no .tmp file behind", () => {
+		saveSession(sample("hastatus"))
+		expect(existsSync(join(sessionsDir(), "hastatus.json"))).toBe(true)
+		expect(existsSync(join(sessionsDir(), "hastatus.json.tmp"))).toBe(false)
+	})
 })

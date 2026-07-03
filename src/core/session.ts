@@ -7,11 +7,21 @@
  * JSON under %APPDATA%\ordo\sessions so they survive across runs.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs"
 import { join } from "node:path"
 import type { Rect } from "../platform/win32"
 import type { Direction } from "../platform/wt"
+import { isDirection } from "../platform/wt"
 import { pickUniqueName } from "./names"
+import { ordoBaseDir } from "./paths"
 
 export interface SatelliteState {
 	id: string
@@ -41,23 +51,33 @@ export interface SessionState {
 	 * absent until generated, in which case the id is shown instead.
 	 */
 	title?: string
+	/** Set when the user renamed the session by hand, so the auto-titler won't override it. */
+	manualTitle?: boolean
 	updatedAt: string
 	center: Rect
 	satellites: SatelliteState[]
 }
 
+let ordoDirCache: string | null = null
+
 /** Root ordo data dir: %APPDATA%\ordo (created on demand). */
 export function ordoDir(): string {
-	const base = process.env.APPDATA ?? process.env.LOCALAPPDATA ?? process.env.HOME ?? "."
-	const dir = join(base, "ordo")
+	const dir = ordoBaseDir()
+	if (ordoDirCache === dir) return dir
 	mkdirSync(dir, { recursive: true })
+	ordoDirCache = dir
 	return dir
 }
 
+let sessionsDirCache: { root: string; dir: string } | null = null
+
 /** Where sessions live: %APPDATA%\ordo\sessions (created on demand). */
 export function sessionsDir(): string {
-	const dir = join(ordoDir(), "sessions")
+	const root = ordoDir()
+	if (sessionsDirCache?.root === root) return sessionsDirCache.dir
+	const dir = join(root, "sessions")
 	mkdirSync(dir, { recursive: true })
+	sessionsDirCache = { root, dir }
 	return dir
 }
 
@@ -106,16 +126,58 @@ export function sessionExists(name: string): boolean {
 	return existsSync(sessionPath(name))
 }
 
+function isRect(value: unknown): value is Rect {
+	if (!value || typeof value !== "object") return false
+	const r = value as Record<string, unknown>
+	return (
+		Number.isFinite(r.x) && Number.isFinite(r.y) && Number.isFinite(r.w) && Number.isFinite(r.h)
+	)
+}
+
+function isSatellite(value: unknown): value is SatelliteState {
+	if (!value || typeof value !== "object") return false
+	const s = value as Record<string, unknown>
+	return (
+		typeof s.id === "string" &&
+		typeof s.direction === "string" &&
+		isDirection(s.direction) &&
+		isRect(s.rect)
+	)
+}
+
 export function loadSession(name: string): SessionState | null {
+	let parsed: unknown
 	try {
-		return JSON.parse(readFileSync(sessionPath(name), "utf8")) as SessionState
+		parsed = JSON.parse(readFileSync(sessionPath(name), "utf8"))
 	} catch {
 		return null
 	}
+	if (!parsed || typeof parsed !== "object") return null
+	const state = parsed as Record<string, unknown>
+	if (typeof state.id !== "string" || state.id === "") return null
+	if (!Array.isArray(state.satellites)) return null
+	if (!isRect(state.center)) return null
+	state.satellites = state.satellites.filter(isSatellite)
+	if (typeof state.updatedAt !== "string") state.updatedAt = ""
+	if (state.title !== undefined && typeof state.title !== "string") delete state.title
+	if (state.manualTitle !== undefined && typeof state.manualTitle !== "boolean") {
+		delete state.manualTitle
+	}
+	return state as unknown as SessionState
 }
 
 export function saveSession(state: SessionState): void {
-	writeFileSync(sessionPath(state.id), JSON.stringify(state, null, 2))
+	const target = sessionPath(state.id)
+	const tmp = `${target}.${process.pid}.${Date.now().toString(36)}.tmp`
+	try {
+		writeFileSync(tmp, JSON.stringify(state, null, 2))
+		renameSync(tmp, target)
+	} catch (e) {
+		try {
+			rmSync(tmp, { force: true })
+		} catch {}
+		throw e
+	}
 }
 
 /** A unique session id (a soldier name not colliding with any saved session). */

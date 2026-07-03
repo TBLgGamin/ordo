@@ -7,10 +7,9 @@
  * the app closing. Discovery is via %APPDATA%\ordo\daemon.json.
  */
 
-import { existsSync, readFileSync } from "node:fs"
-import { join } from "node:path"
 import type { Socket } from "bun"
-import { BUN_EXE, DAEMON_PATH, POWERSHELL_EXE } from "../core/config"
+import { BUN_EXE, DAEMON_PATH, powershellExe } from "../core/config"
+import { type DaemonInfo, readDaemonInfo } from "../core/daemonInfo"
 import type {
 	ControlEvent,
 	ControlHello,
@@ -18,14 +17,11 @@ import type {
 	ControlResponse,
 	PaneState,
 } from "../core/daemonProtocol"
+import { PROTOCOL_VERSION } from "../core/daemonProtocol"
+import { errMessage } from "../core/errors"
 import { encode, LineDecoder } from "../core/protocol"
 import { ordoDir } from "../core/session"
-
-interface DaemonInfo {
-	port: number
-	token: string
-	pid: number
-}
+import { acquireSpawnLock, releaseSpawnLock } from "./spawnLock"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -35,7 +31,6 @@ type RequestBody = DistributiveOmit<ControlRequest, "id">
 
 export class DaemonClient {
 	private sock?: Socket<undefined>
-	private token = ""
 	private ownedSession?: string
 	private readonly decoder = new LineDecoder<ControlResponse | ControlEvent>()
 	private nextId = 1
@@ -44,11 +39,39 @@ export class DaemonClient {
 		{ resolve: (v: unknown) => void; reject: (e: Error) => void }
 	>()
 	private readonly listeners = new Set<(e: ControlEvent) => void>()
+	private readonly connListeners = new Set<(up: boolean) => void>()
+	private connected = false
+	private closedByUser = false
+	private reconnecting = false
+	private daemonPid?: number
+
+	get connectedPid(): number | undefined {
+		return this.daemonPid
+	}
 
 	/** Subscribe to daemon pane events. Returns an unsubscribe fn. */
 	on(listener: (e: ControlEvent) => void): () => void {
 		this.listeners.add(listener)
 		return () => this.listeners.delete(listener)
+	}
+
+	/** Subscribe to connection up/down transitions after an established link drops. */
+	onConnection(cb: (up: boolean) => void): () => void {
+		this.connListeners.add(cb)
+		return () => this.connListeners.delete(cb)
+	}
+
+	private notifyConnection(up: boolean): void {
+		for (const cb of this.connListeners) {
+			try {
+				cb(up)
+			} catch {}
+		}
+	}
+
+	/** Attempt to attach to a running daemon without ever spawning one. */
+	tryAttach(): Promise<boolean> {
+		return this.tryConnect()
 	}
 
 	/**
@@ -58,30 +81,57 @@ export class DaemonClient {
 	async ensure(session?: string): Promise<void> {
 		this.ownedSession = session
 		if (await this.tryConnect()) return
-		await this.spawnDaemon()
-		for (let i = 0; i < 40; i++) {
-			await sleep(200)
-			if (await this.tryConnect()) return
+		if (!this.acquireSpawnLock()) {
+			for (let i = 0; i < 40; i++) {
+				await sleep(200)
+				if (await this.tryConnect()) return
+			}
+			throw new Error("session daemon did not start")
 		}
-		throw new Error("session daemon did not start")
+		try {
+			if (await this.tryConnect()) return
+			await this.spawnDaemon()
+			for (let i = 0; i < 40; i++) {
+				await sleep(200)
+				if (await this.tryConnect()) return
+			}
+			throw new Error("session daemon did not start")
+		} finally {
+			this.releaseSpawnLock()
+		}
 	}
 
-	private readInfo(): DaemonInfo | null {
-		const path = join(ordoDir(), "daemon.json")
-		if (!existsSync(path)) return null
-		try {
-			return JSON.parse(readFileSync(path, "utf8")) as DaemonInfo
-		} catch {
-			return null
-		}
+	private lockPath?: string
+
+	private acquireSpawnLock(): boolean {
+		this.lockPath = acquireSpawnLock(ordoDir()) ?? undefined
+		return this.lockPath !== undefined
+	}
+
+	private releaseSpawnLock(): void {
+		releaseSpawnLock(this.lockPath)
+		this.lockPath = undefined
 	}
 
 	private async tryConnect(): Promise<boolean> {
-		const info = this.readInfo()
+		const info = readDaemonInfo()
 		if (!info) return false
 		try {
 			await this.connectControl(info)
-			await this.request<{ pid: number }>({ op: "ping" }, 1500)
+			const res = await this.request<{ pid: number; v?: number }>({ op: "ping" }, 1500)
+			this.daemonPid = res.pid
+			if (res.v !== undefined && res.v !== PROTOCOL_VERSION) {
+				try {
+					await this.request({ op: "shutdown" }, 1000)
+				} catch {}
+				this.connected = false
+				try {
+					this.sock?.end()
+				} catch {}
+				this.sock = undefined
+				return false
+			}
+			this.connected = true
 			return true
 		} catch {
 			try {
@@ -93,8 +143,28 @@ export class DaemonClient {
 	}
 
 	private connectControl(info: DaemonInfo): Promise<void> {
-		this.token = info.token
 		return new Promise<void>((resolve, reject) => {
+			let settled = false
+			const timer = setTimeout(() => {
+				if (settled) return
+				settled = true
+				try {
+					this.sock?.end()
+				} catch {}
+				reject(new Error("connect to daemon timed out"))
+			}, 2000)
+			const succeed = () => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				resolve()
+			}
+			const fail = (e: Error) => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				reject(e)
+			}
 			Bun.connect<undefined>({
 				hostname: "127.0.0.1",
 				port: info.port,
@@ -108,19 +178,28 @@ export class DaemonClient {
 						}
 						sock.write(encode(hello))
 						sock.flush()
-						resolve()
+						succeed()
 					},
 					data: (_sock, chunk) => this.onData(chunk),
 					close: () => this.onDisconnect(),
 					error: () => this.onDisconnect(),
-					connectError: (_s, e) => reject(e),
+					connectError: (_s, e) => fail(e),
 				},
-			}).catch(reject)
+			}).catch(fail)
 		})
 	}
 
 	private onData(chunk: Uint8Array): void {
-		for (const msg of this.decoder.push(chunk)) {
+		let messages: (ControlResponse | ControlEvent)[]
+		try {
+			messages = this.decoder.push(chunk)
+		} catch {
+			try {
+				this.sock?.end()
+			} catch {}
+			return
+		}
+		for (const msg of messages) {
 			if ("id" in msg) {
 				const p = this.pending.get(msg.id)
 				if (p) {
@@ -129,15 +208,50 @@ export class DaemonClient {
 					else p.reject(new Error(msg.error))
 				}
 			} else if ("event" in msg) {
-				for (const l of this.listeners) l(msg)
+				for (const l of this.listeners) {
+					try {
+						l(msg)
+					} catch (e) {
+						console.error(`ordo: daemon event listener failed: ${errMessage(e)}`)
+					}
+				}
 			}
 		}
 	}
 
 	private onDisconnect(): void {
+		const wasConnected = this.connected
+		this.connected = false
 		this.sock = undefined
 		for (const { reject } of this.pending.values()) reject(new Error("daemon disconnected"))
 		this.pending.clear()
+		if (this.closedByUser || !wasConnected) return
+		this.notifyConnection(false)
+		void this.reconnect()
+	}
+
+	private async reconnect(): Promise<void> {
+		if (this.reconnecting) return
+		this.reconnecting = true
+		try {
+			for (let i = 0; i < 5; i++) {
+				if (this.closedByUser) return
+				await sleep(Math.min(500 * 2 ** i, 4000))
+				if (this.closedByUser) return
+				// Reconnect must never spawn a fresh (empty) daemon: if the daemon that
+				// held our shells is gone, a new one cannot bring them back. Only re-attach
+				// to the same still-running daemon; otherwise report the link as lost.
+				try {
+					if (await this.tryConnect()) {
+						this.notifyConnection(true)
+						return
+					}
+				} catch {}
+			}
+			this.notifyConnection(false)
+		} finally {
+			this.reconnecting = false
+		}
 	}
 
 	private request<T>(req: RequestBody, timeoutMs = 5000): Promise<T> {
@@ -169,7 +283,7 @@ export class DaemonClient {
 		// Start-Process makes the daemon independent of (and outliving) this app,
 		// and -WindowStyle Hidden keeps it windowless. Single-quote the paths.
 		const ps = `Start-Process -FilePath '${BUN_EXE}' -ArgumentList @('run','${DAEMON_PATH}') -WindowStyle Hidden`
-		const proc = Bun.spawn([POWERSHELL_EXE, "-NoProfile", "-Command", ps], {
+		const proc = Bun.spawn([powershellExe(), "-NoProfile", "-Command", ps], {
 			stdin: "ignore",
 			stdout: "ignore",
 			stderr: "ignore",
@@ -199,9 +313,28 @@ export class DaemonClient {
 	}
 
 	stop(): void {
+		this.closedByUser = true
+		this.connected = false
 		try {
 			this.sock?.end()
 		} catch {}
 		this.sock = undefined
+	}
+}
+
+/**
+ * Kill every pane of a session in a running daemon, without ever spawning one.
+ * Used by CLI `--delete` so the daemon releases its capture-file handles before
+ * the session's scrollback is removed. No-op if no daemon is running.
+ */
+export async function killSessionPanes(session: string): Promise<void> {
+	const dc = new DaemonClient()
+	try {
+		if (!(await dc.tryAttach())) return
+		const { panes } = await dc.getState(session)
+		await Promise.allSettled(panes.map((p) => dc.killPane(session, p.pane)))
+	} catch {
+	} finally {
+		dc.stop()
 	}
 }

@@ -106,7 +106,10 @@ function Resolve-RepoRoot {
 
 function Get-BunVersion {
 	$raw = & bun --version | Select-Object -First 1
-	return [version]$raw.Trim()
+	if ("$raw".Trim() -match '(\d+)\.(\d+)\.(\d+)') {
+		return [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])"
+	}
+	Stop-Fatal "Could not parse bun version output: '$raw'. Reinstall Bun: irm bun.sh/install.ps1 | iex"
 }
 
 function Ensure-Bun {

@@ -29,6 +29,7 @@ import {
 	type Hwnd,
 	listTerminalWindows,
 	type Rect,
+	setForegroundWindow,
 	setWindowHighlight,
 	setWindowRect,
 } from "../platform/win32"
@@ -45,10 +46,12 @@ interface Satellite {
 }
 
 export class LayoutManager {
-	private centerHwnd: Hwnd = 0 as unknown as Hwnd
+	private centerHwnd: Hwnd | null = null
 	private center: Rect = { x: 0, y: 0, w: 0, h: 0 }
 	private work: Rect = { x: 0, y: 0, w: 0, h: 0 }
 	private readonly sats = new Map<string, Satellite>()
+	/** Set whenever window geometry changes, so an idle persist tick can skip snapshotting. */
+	private dirty = true
 
 	/** Pixel gap left between tiled windows (and around the center). */
 	gap = 2
@@ -61,6 +64,8 @@ export class LayoutManager {
 
 	/** Interval handle for the follow-the-center watcher. */
 	private watchTimer?: ReturnType<typeof setInterval>
+	private centerMoving = false
+	private stablePolls = 0
 
 	/** Highlight color last applied to the center (command) window. */
 	private centerHighlight?: string | null
@@ -82,8 +87,9 @@ export class LayoutManager {
 			const fgIsWt = wtWins.some((w) => w.hwnd === fg)
 			this.centerHwnd = fgIsWt ? fg : (wtWins[0]?.hwnd ?? fg)
 		}
-		this.center = getWindowRect(this.centerHwnd)
-		this.work = getWorkArea(this.centerHwnd)
+		if (!this.centerHwnd) throw new Error("no Windows Terminal window found to use as center")
+		this.center = getWindowRect(this.centerHwnd) ?? this.center
+		this.work = getWorkArea(this.centerHwnd) ?? this.work
 		return { hwnd: this.centerHwnd, rect: this.center }
 	}
 
@@ -96,12 +102,17 @@ export class LayoutManager {
 	 * area, and adopt that as the fixed center. Call after captureCenter().
 	 */
 	centerWindow(wFrac: number, hFrac: number): Rect {
+		if (!this.centerHwnd) return this.center
+		this.work = getWorkArea(this.centerHwnd) ?? this.work
 		const a = this.work
 		// Clamp the center width so each side column stays ≥ the WT minimum,
 		// otherwise side tiles couldn't shrink to fit and would overlap.
 		const maxW = a.w - 2 * MIN_WIN_W
-		const w = Math.round(Math.min(Math.max(a.w * wFrac, MIN_WIN_W), Math.max(MIN_WIN_W, maxW)))
-		const h = Math.round(a.h * hFrac)
+		const w = Math.min(
+			a.w,
+			Math.round(Math.min(Math.max(a.w * wFrac, MIN_WIN_W), Math.max(MIN_WIN_W, maxW))),
+		)
+		const h = Math.min(a.h, Math.round(a.h * hFrac))
 		const rect: Rect = {
 			x: Math.round(a.x + (a.w - w) / 2),
 			y: Math.round(a.y + (a.h - h) / 2),
@@ -110,14 +121,17 @@ export class LayoutManager {
 		}
 		setWindowRect(this.centerHwnd, rect)
 		this.center = rect
+		this.dirty = true
 		return rect
 	}
 
 	/** Adopt an explicit center rect (used when restoring a saved session). */
 	setCenterRect(rect: Rect): Rect {
+		if (!this.centerHwnd) return this.center
 		setWindowRect(this.centerHwnd, rect)
 		this.center = { ...rect }
-		this.work = getWorkArea(this.centerHwnd)
+		this.work = getWorkArea(this.centerHwnd) ?? this.work
+		this.dirty = true
 		return this.center
 	}
 
@@ -128,7 +142,7 @@ export class LayoutManager {
 			sats: [...this.sats.values()].map((s) => ({
 				id: s.id,
 				dir: s.dir,
-				rect: getWindowRect(s.hwnd),
+				rect: getWindowRect(s.hwnd) ?? { x: 0, y: 0, w: 0, h: 0 },
 			})),
 		}
 	}
@@ -144,8 +158,7 @@ export class LayoutManager {
 	}
 
 	/** Re-tile every satellite in `dir`'s zone to fill it evenly. */
-	private retile(dir: Direction, instant = false): void {
-		const zone = this.inZone(dir)
+	private retile(dir: Direction, instant = false, zone: Satellite[] = this.inZone(dir)): void {
 		const rects = slotRects(dir, zone.length, this.center, this.work, this.gap)
 		const targets = zone
 			.map((s, i) => ({ hwnd: s.hwnd, to: rects[i] }))
@@ -169,13 +182,15 @@ export class LayoutManager {
 	/** Re-tile every zone — used when the center moves so satellites follow it. */
 	private retileAll(instant: boolean): void {
 		for (const dir of ["left", "right", "up", "down"] as Direction[]) {
-			if (this.inZone(dir).length > 0) this.retile(dir, instant)
+			const zone = this.inZone(dir)
+			if (zone.length > 0) this.retile(dir, instant, zone)
 		}
 	}
 
 	/** Register a satellite window and tile its zone. */
 	add(id: string, hwnd: Hwnd, dir: Direction): void {
 		this.sats.set(id, { id, hwnd, dir })
+		this.dirty = true
 		this.retile(dir)
 		this.updateFocusHighlight() // a just-spawned pane is usually focused
 	}
@@ -186,6 +201,7 @@ export class LayoutManager {
 	 */
 	addRestored(id: string, hwnd: Hwnd, dir: Direction, rect: Rect): void {
 		this.sats.set(id, { id, hwnd, dir })
+		this.dirty = true
 		setWindowRect(hwnd, rect)
 		this.updateFocusHighlight()
 	}
@@ -195,6 +211,7 @@ export class LayoutManager {
 		const s = this.sats.get(id)
 		if (!s) return
 		this.sats.delete(id)
+		this.dirty = true
 		this.retile(s.dir)
 	}
 
@@ -205,10 +222,32 @@ export class LayoutManager {
 	clearSatellites(): void {
 		this.animator.cancelAll()
 		this.sats.clear()
+		this.dirty = true
 	}
 
 	has(id: string): boolean {
 		return this.sats.has(id)
+	}
+
+	/** Return whether geometry changed since the last call, clearing the flag. */
+	consumeDirty(): boolean {
+		const was = this.dirty
+		this.dirty = false
+		return was
+	}
+
+	/** Cycle keyboard focus across the center + satellites by `delta` (+1 next, -1 prev). */
+	focusCycle(delta: number): void {
+		const order: Hwnd[] = [
+			...(this.centerHwnd ? [this.centerHwnd] : []),
+			...[...this.sats.values()].map((s) => s.hwnd),
+		]
+		if (order.length === 0) return
+		const fg = getForegroundWindow()
+		let idx = order.indexOf(fg)
+		if (idx < 0) idx = 0
+		const next = order[(((idx + delta) % order.length) + order.length) % order.length]
+		if (next) setForegroundWindow(next)
 	}
 
 	/**
@@ -217,29 +256,56 @@ export class LayoutManager {
 	 * so they follow it and stay on the same screen.
 	 */
 	watch(intervalMs = 120): void {
+		if (!this.centerHwnd) return
 		this.unwatch()
 		this.watchTimer = setInterval(() => {
+			if (!this.centerHwnd) return
 			this.followCenter()
 			this.updateFocusHighlight()
 		}, intervalMs)
 	}
 
 	unwatch(): void {
+		this.animator.cancelAll()
 		if (this.watchTimer) clearInterval(this.watchTimer)
 		this.watchTimer = undefined
+		this.clearHighlights()
 		this.overlay.destroy()
 	}
 
+	clearHighlights(): void {
+		if (this.centerHwnd && this.centerHighlight) setWindowHighlight(this.centerHwnd, null)
+		this.centerHighlight = null
+		for (const s of this.sats.values()) {
+			if (s.appliedHighlight) setWindowHighlight(s.hwnd, null)
+			s.appliedHighlight = null
+		}
+		this.overlay.hide()
+	}
+
 	private followCenter(): void {
-		const cur = getWindowRect(this.centerHwnd)
-		if (cur.w <= 0 || cur.h <= 0) return // window minimized/gone
+		const hwnd = this.centerHwnd
+		if (!hwnd) return
+		const cur = getWindowRect(hwnd)
+		if (!cur || cur.w <= 0 || cur.h <= 0) return // window minimized/gone
 		const c = this.center
-		if (cur.x === c.x && cur.y === c.y && cur.w === c.w && cur.h === c.h) return
-		this.center = cur
-		this.work = getWorkArea(this.centerHwnd) // may be a different monitor now
-		// Animate so satellites glide along smoothly instead of snapping/flickering.
-		// Each poll supersedes the previous tween, producing a smooth trail.
-		this.retileAll(false)
+		const moved = cur.x !== c.x || cur.y !== c.y || cur.w !== c.w || cur.h !== c.h
+		if (moved) {
+			this.center = cur
+			this.work = getWorkArea(hwnd) ?? this.work // may be a different monitor now
+			this.dirty = true
+			this.centerMoving = true
+			this.stablePolls = 0
+			this.retileAll(true)
+			return
+		}
+		if (this.centerMoving) {
+			this.stablePolls++
+			if (this.stablePolls >= 2) {
+				this.centerMoving = false
+				this.retileAll(false)
+			}
+		}
 	}
 
 	/**
@@ -251,14 +317,15 @@ export class LayoutManager {
 	private updateFocusHighlight(): void {
 		const fg = getForegroundWindow()
 
-		const centerDesired = this.centerHwnd === fg ? SELECT_BORDER_COLOR : null
-		if (this.centerHighlight !== centerDesired) {
-			setWindowHighlight(this.centerHwnd, centerDesired)
+		const center = this.centerHwnd
+		const centerDesired = center === fg ? SELECT_BORDER_COLOR : null
+		if (center && this.centerHighlight !== centerDesired) {
+			setWindowHighlight(center, centerDesired)
 			this.centerHighlight = centerDesired
 		}
 
 		let focusedRect: Rect | null = null
-		if (this.centerHwnd === fg) focusedRect = this.center
+		if (center && center === fg) focusedRect = this.center
 		for (const s of this.sats.values()) {
 			const desired = s.hwnd === fg ? SELECT_BORDER_COLOR : null
 			if (s.appliedHighlight !== desired) {
