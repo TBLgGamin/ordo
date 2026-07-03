@@ -46,16 +46,19 @@ export function slotRects(
 	const z = zoneRect(dir, center, work)
 	if (z.w <= 0 || z.h <= 0) return []
 	const g = gap
+	const edges: number[] = []
+	for (let i = 0; i <= n; i++) edges.push(Math.round(z.y + (i * z.h) / n))
 	const out: Rect[] = []
 	for (let i = 0; i < n; i++) {
-		const cell = { x: z.x, y: z.y + (i * z.h) / n, w: z.w, h: z.h / n }
+		const top = edges[i] ?? z.y
+		const bottom = edges[i + 1] ?? z.y + z.h
 		out.push(
 			clampToWork(
 				{
-					x: cell.x + g,
-					y: cell.y + g,
-					w: Math.max(0, cell.w - 2 * g),
-					h: Math.max(MIN_SLOT_H, cell.h - 2 * g),
+					x: z.x + g,
+					y: top + g,
+					w: Math.max(0, z.w - 2 * g),
+					h: Math.max(MIN_SLOT_H, bottom - top - 2 * g),
 				},
 				work,
 			),

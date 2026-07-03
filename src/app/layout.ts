@@ -20,7 +20,14 @@
  *   └──────┴───────┴──────┘
  */
 
-import { BORDER_THICKNESS, MIN_WIN_W, SELECT_BORDER_COLOR } from "../core/config"
+import {
+	BORDER_THICKNESS,
+	CENTER_FOLLOW_MS,
+	CENTER_IDLE_POLL_MS,
+	CENTER_SETTLE_MS,
+	MIN_WIN_W,
+	SELECT_BORDER_COLOR,
+} from "../core/config"
 import { OverlayFrame } from "../platform/overlay"
 import {
 	getForegroundWindow,
@@ -32,6 +39,7 @@ import {
 	setForegroundWindow,
 	setWindowHighlight,
 	setWindowRect,
+	setWindowRectAsync,
 } from "../platform/win32"
 import type { Direction } from "../platform/wt"
 import { ZoneAnimator } from "./animator"
@@ -62,10 +70,11 @@ export class LayoutManager {
 	/** Per-zone window slide/resize tweening. */
 	private readonly animator = new ZoneAnimator()
 
-	/** Interval handle for the follow-the-center watcher. */
-	private watchTimer?: ReturnType<typeof setInterval>
+	/** Timer handle for the follow-the-center watcher. */
+	private watchTimer?: ReturnType<typeof setTimeout>
 	private centerMoving = false
-	private stablePolls = 0
+	private lastCenterMove = 0
+	private idlePollMs = CENTER_IDLE_POLL_MS
 
 	/** Highlight color last applied to the center (command) window. */
 	private centerHighlight?: string | null
@@ -158,7 +167,12 @@ export class LayoutManager {
 	}
 
 	/** Re-tile every satellite in `dir`'s zone to fill it evenly. */
-	private retile(dir: Direction, instant = false, zone: Satellite[] = this.inZone(dir)): void {
+	private retile(
+		dir: Direction,
+		instant = false,
+		zone: Satellite[] = this.inZone(dir),
+		live = false,
+	): void {
 		const rects = slotRects(dir, zone.length, this.center, this.work, this.gap)
 		const targets = zone
 			.map((s, i) => ({ hwnd: s.hwnd, to: rects[i] }))
@@ -168,8 +182,10 @@ export class LayoutManager {
 		}>
 		if (instant) {
 			this.animator.cancel(dir)
-			for (const it of targets) setWindowRect(it.hwnd, it.to)
+			const place = live ? setWindowRectAsync : setWindowRect
+			for (const it of targets) place(it.hwnd, it.to)
 		} else {
+			this.overlay.hide()
 			this.animator.animate(dir, targets, this.animMs)
 		}
 	}
@@ -180,10 +196,10 @@ export class LayoutManager {
 	}
 
 	/** Re-tile every zone — used when the center moves so satellites follow it. */
-	private retileAll(instant: boolean): void {
+	private retileAll(instant: boolean, live = false): void {
 		for (const dir of ["left", "right", "up", "down"] as Direction[]) {
 			const zone = this.inZone(dir)
-			if (zone.length > 0) this.retile(dir, instant, zone)
+			if (zone.length > 0) this.retile(dir, instant, zone, live)
 		}
 	}
 
@@ -255,20 +271,25 @@ export class LayoutManager {
 	 * another monitor — adopt the new rect + work area and re-tile all satellites
 	 * so they follow it and stay on the same screen.
 	 */
-	watch(intervalMs = 120): void {
+	watch(intervalMs = CENTER_IDLE_POLL_MS): void {
 		if (!this.centerHwnd) return
 		this.unwatch()
-		this.watchTimer = setInterval(() => {
+		this.idlePollMs = intervalMs
+		const tick = () => {
 			if (!this.centerHwnd) return
 			this.followCenter()
 			this.updateFocusHighlight()
-		}, intervalMs)
+			const delay = this.centerMoving ? CENTER_FOLLOW_MS : this.idlePollMs
+			this.watchTimer = setTimeout(tick, delay)
+		}
+		this.watchTimer = setTimeout(tick, intervalMs)
 	}
 
 	unwatch(): void {
 		this.animator.cancelAll()
-		if (this.watchTimer) clearInterval(this.watchTimer)
+		if (this.watchTimer) clearTimeout(this.watchTimer)
 		this.watchTimer = undefined
+		this.centerMoving = false
 		this.clearHighlights()
 		this.overlay.destroy()
 	}
@@ -295,16 +316,13 @@ export class LayoutManager {
 			this.work = getWorkArea(hwnd) ?? this.work // may be a different monitor now
 			this.dirty = true
 			this.centerMoving = true
-			this.stablePolls = 0
-			this.retileAll(true)
+			this.lastCenterMove = performance.now()
+			this.retileAll(true, true)
 			return
 		}
-		if (this.centerMoving) {
-			this.stablePolls++
-			if (this.stablePolls >= 2) {
-				this.centerMoving = false
-				this.retileAll(false)
-			}
+		if (this.centerMoving && performance.now() - this.lastCenterMove >= CENTER_SETTLE_MS) {
+			this.centerMoving = false
+			this.retileAll(false)
 		}
 	}
 
@@ -335,8 +353,8 @@ export class LayoutManager {
 			if (s.hwnd === fg) focusedRect = getWindowRect(s.hwnd)
 		}
 
-		// Thick overlay frame around whichever window is focused (else hidden).
-		if (focusedRect) this.overlay.show(focusedRect)
+		if (this.animator.hasAny() || this.centerMoving) this.overlay.hide()
+		else if (focusedRect) this.overlay.show(focusedRect)
 		else this.overlay.hide()
 	}
 }

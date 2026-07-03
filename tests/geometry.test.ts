@@ -65,6 +65,38 @@ describe("slotRects", () => {
 			expect(r.y + r.h).toBeLessThanOrEqual(work.y + work.h)
 		}
 	})
+
+	const oddWork: Rect = { x: 0, y: 0, w: 1600, h: 1001 }
+	const oddCenter: Rect = { x: 400, y: 200, w: 800, h: 600 }
+	const gap = 10
+
+	test("every slot field is an integer even on an odd-height zone", () => {
+		for (const n of [2, 3, 7]) {
+			for (const r of slotRects("right", n, oddCenter, oddWork, gap)) {
+				expect(Number.isInteger(r.x)).toBe(true)
+				expect(Number.isInteger(r.y)).toBe(true)
+				expect(Number.isInteger(r.w)).toBe(true)
+				expect(Number.isInteger(r.h)).toBe(true)
+			}
+		}
+	})
+
+	test("adjacent stacked slots share an exact 2*gap seam (no shimmer)", () => {
+		for (const n of [2, 3, 7]) {
+			const rects = slotRects("right", n, oddCenter, oddWork, gap)
+			for (let i = 0; i + 1 < rects.length; i++) {
+				const seam = (rects[i + 1]?.y ?? 0) - ((rects[i]?.y ?? 0) + (rects[i]?.h ?? 0))
+				expect(seam).toBe(2 * gap)
+			}
+		}
+	})
+
+	test("slot heights differ by at most 1px", () => {
+		for (const n of [3, 7]) {
+			const heights = slotRects("right", n, oddCenter, oddWork, gap).map((r) => r.h)
+			expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1)
+		}
+	})
 })
 
 describe("clampToWork", () => {

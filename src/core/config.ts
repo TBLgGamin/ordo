@@ -172,6 +172,16 @@ export const MIN_WIN_W = numEnv("ORDO_MIN_W", 480, 200, 2000)
 /** Slide/resize animation duration in ms when tiles rearrange. 0 = instant. */
 export const ANIM_MS = numEnv("ORDO_ANIM_MS", 180, 0, 2000)
 
+export const ANIM_FRAME_MS = numEnv("ORDO_ANIM_FRAME_MS", 16, 4, 50)
+
+export const RESIZE_DEBOUNCE_MS = numEnv("ORDO_RESIZE_DEBOUNCE", 100, 0, 1000)
+
+export const CENTER_IDLE_POLL_MS = numEnv("ORDO_CENTER_IDLE_POLL", 120, 30, 500)
+
+export const CENTER_FOLLOW_MS = numEnv("ORDO_CENTER_FOLLOW", 16, 4, 60)
+
+export const CENTER_SETTLE_MS = numEnv("ORDO_CENTER_SETTLE", 150, 30, 1000)
+
 /** Highlight color for the focused pane/window (border + title bar). */
 const SELECT_COLOR_DEFAULT = "#d6c9f9"
 function validHex(raw: string | undefined): string {

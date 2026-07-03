@@ -11,7 +11,7 @@
  * Invoked as: bun attachClient.ts --session <name> --pane <id>
  */
 
-import { CLIENT_OVERFLOW_BYTES } from "../core/config"
+import { CLIENT_OVERFLOW_BYTES, RESIZE_DEBOUNCE_MS } from "../core/config"
 import { readDaemonInfo } from "../core/daemonInfo"
 import type { AttachClientMsg, AttachHello } from "../core/daemonProtocol"
 import { PROTOCOL_VERSION } from "../core/daemonProtocol"
@@ -100,10 +100,19 @@ async function main() {
 					}
 				})
 
-				process.stdout.on("resize", () => {
+				const sendResize = () => {
 					const s = paneSize()
 					const msg: AttachClientMsg = { t: "r", c: s.cols, r: s.rows }
 					writer?.write(encode(msg))
+				}
+				let resizeTimer: ReturnType<typeof setTimeout> | undefined
+				process.stdout.on("resize", () => {
+					if (RESIZE_DEBOUNCE_MS <= 0) {
+						sendResize()
+						return
+					}
+					if (resizeTimer !== undefined) clearTimeout(resizeTimer)
+					resizeTimer = setTimeout(sendResize, RESIZE_DEBOUNCE_MS)
 				})
 			},
 			drain: () => writer?.drain(),

@@ -40,6 +40,21 @@ function loadUser32() {
 			SetForegroundWindow: { args: [FFIType.ptr], returns: FFIType.bool },
 			MonitorFromWindow: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
 			GetMonitorInfoW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
+			BeginDeferWindowPos: { args: [FFIType.i32], returns: FFIType.ptr },
+			DeferWindowPos: {
+				args: [
+					FFIType.ptr,
+					FFIType.ptr,
+					FFIType.ptr,
+					FFIType.i32,
+					FFIType.i32,
+					FFIType.i32,
+					FFIType.i32,
+					FFIType.u32,
+				],
+				returns: FFIType.ptr,
+			},
+			EndDeferWindowPos: { args: [FFIType.ptr], returns: FFIType.bool },
 		})
 	} catch {
 		return null
@@ -72,8 +87,10 @@ function user32() {
 /** Windows Terminal's top-level window class. */
 export const WT_WINDOW_CLASS = "CASCADIA_HOSTING_WINDOW_CLASS"
 
+const SWP_NOSIZE = 0x0001
 const SWP_NOZORDER = 0x0004
 const SWP_NOACTIVATE = 0x0010
+const SWP_ASYNCWINDOWPOS = 0x4000
 const MONITOR_DEFAULTTONEAREST = 0x0002
 
 // DWM window-attribute constants (Windows 11 22000+).
@@ -208,6 +225,56 @@ export function setWindowRect(hwnd: Hwnd, rect: Rect): boolean {
 		Math.round(rect.h),
 		SWP_NOZORDER | SWP_NOACTIVATE,
 	)
+}
+
+export function setWindowRectAsync(hwnd: Hwnd, rect: Rect): boolean {
+	return user32().SetWindowPos(
+		hwnd,
+		null,
+		Math.round(rect.x),
+		Math.round(rect.y),
+		Math.round(rect.w),
+		Math.round(rect.h),
+		SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
+	)
+}
+
+export function moveWindow(hwnd: Hwnd, x: number, y: number): boolean {
+	return user32().SetWindowPos(
+		hwnd,
+		null,
+		Math.round(x),
+		Math.round(y),
+		0,
+		0,
+		SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE | SWP_ASYNCWINDOWPOS,
+	)
+}
+
+export function moveWindows(items: Array<{ hwnd: Hwnd; x: number; y: number }>): boolean {
+	if (items.length === 0) return true
+	let hdwp = user32().BeginDeferWindowPos(items.length)
+	if (!hdwp) return moveEach(items)
+	for (const it of items) {
+		hdwp = user32().DeferWindowPos(
+			hdwp,
+			it.hwnd,
+			null,
+			Math.round(it.x),
+			Math.round(it.y),
+			0,
+			0,
+			SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE,
+		)
+		if (!hdwp) return moveEach(items)
+	}
+	return user32().EndDeferWindowPos(hdwp)
+}
+
+function moveEach(items: Array<{ hwnd: Hwnd; x: number; y: number }>): boolean {
+	let ok = true
+	for (const it of items) ok = moveWindow(it.hwnd, it.x, it.y) && ok
+	return ok
 }
 
 // MONITORINFO: cbSize(4) + rcMonitor(16) + rcWork(16) + dwFlags(4) = 40 bytes.

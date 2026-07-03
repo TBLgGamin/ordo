@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import type { AnimatorOps } from "../src/app/animator"
 import { ZoneAnimator } from "../src/app/animator"
 import { runPool, sleep } from "../src/app/types"
 import type { Hwnd, Rect } from "../src/platform/win32"
@@ -6,33 +7,107 @@ import type { Hwnd, Rect } from "../src/platform/win32"
 const H = 0 as unknown as Hwnd
 const to = (x: number): Rect => ({ x, y: 0, w: 0, h: 0 })
 
+type Op =
+	| { kind: "set"; rect: Rect }
+	| { kind: "move"; x: number; y: number }
+	| { kind: "batch"; xs: number[] }
+
+function recorder(getRect: () => Rect | null) {
+	const log: Op[] = []
+	const ops: AnimatorOps = {
+		getRect: () => {
+			const r = getRect()
+			return r ? { ...r } : null
+		},
+		setRect: (_h, rect) => log.push({ kind: "set", rect: { ...rect } }),
+		move: (_h, x, y) => log.push({ kind: "move", x, y }),
+		moveBatch: (items) => log.push({ kind: "batch", xs: items.map((i) => i.x) }),
+		now: () => performance.now(),
+	}
+	return { ops, log }
+}
+
+const lastSet = (log: Op[]): Rect | undefined =>
+	log.filter((o) => o.kind === "set").at(-1)?.rect
+
 describe("ZoneAnimator", () => {
 	test("applies targets immediately when animMs is 0", () => {
 		const a = new ZoneAnimator()
-		const xs: number[] = []
-		a.animate("right", [{ hwnd: H, to: to(7) }], 0, (_h, r) => xs.push(r.x))
-		expect(xs).toEqual([7])
+		const { ops, log } = recorder(() => ({ x: 0, y: 0, w: 0, h: 0 }))
+		a.animate("right", [{ hwnd: H, to: to(7) }], 0, ops)
+		expect(log).toEqual([{ kind: "set", rect: to(7) }])
 		expect(a.has("right")).toBe(false)
 	})
 
-	test("runs a trailing correction, then clears the zone entry", async () => {
+	test("resizes once up front, slides position, then lands exactly on target", async () => {
 		const a = new ZoneAnimator()
-		const xs: number[] = []
-		a.animate("right", [{ hwnd: H, to: to(99) }], 16, (_h, r) => xs.push(r.x))
-		await sleep(240)
-		expect(xs.at(-1)).toBe(99)
+		const from: Rect = { x: 0, y: 0, w: 100, h: 100 }
+		const target: Rect = { x: 200, y: 0, w: 300, h: 100 }
+		const { ops, log } = recorder(() => from)
+		a.animate("right", [{ hwnd: H, to: target }], 60, ops)
+		await sleep(260)
+		expect(log[0]).toEqual({ kind: "set", rect: { x: 0, y: 0, w: 300, h: 100 } })
+		expect(log.some((o) => o.kind === "move")).toBe(true)
+		expect(lastSet(log)).toEqual(target)
 		expect(a.has("right")).toBe(false)
+	})
+
+	test("a move-only tween never resizes before sliding", async () => {
+		const a = new ZoneAnimator()
+		const from: Rect = { x: 0, y: 0, w: 100, h: 100 }
+		const target: Rect = { x: 200, y: 0, w: 100, h: 100 }
+		const { ops, log } = recorder(() => from)
+		a.animate("right", [{ hwnd: H, to: target }], 60, ops)
+		await sleep(260)
+		expect(log[0]?.kind).toBe("move")
+		expect(lastSet(log)).toEqual(target)
+	})
+
+	test("snaps immediately and skips the tween when the source rect is gone", () => {
+		const a = new ZoneAnimator()
+		const { ops, log } = recorder(() => null)
+		a.animate("right", [{ hwnd: H, to: to(42) }], 60, ops)
+		expect(log).toEqual([{ kind: "set", rect: to(42) }])
+		expect(a.has("right")).toBe(false)
+	})
+
+	test("hasAny() is true while animating and false once settled", async () => {
+		const a = new ZoneAnimator()
+		const { ops } = recorder(() => ({ x: 0, y: 0, w: 0, h: 0 }))
+		a.animate("right", [{ hwnd: H, to: to(9) }], 40, ops)
+		expect(a.hasAny()).toBe(true)
+		await sleep(260)
+		expect(a.hasAny()).toBe(false)
+	})
+
+	test("batches frames when a zone has more than one window", async () => {
+		const a = new ZoneAnimator()
+		const from: Rect = { x: 0, y: 0, w: 100, h: 100 }
+		const h2 = 1 as unknown as Hwnd
+		const { ops, log } = recorder(() => from)
+		a.animate(
+			"right",
+			[
+				{ hwnd: H, to: { x: 200, y: 0, w: 100, h: 100 } },
+				{ hwnd: h2, to: { x: 400, y: 0, w: 100, h: 100 } },
+			],
+			60,
+			ops,
+		)
+		await sleep(260)
+		expect(log.some((o) => o.kind === "batch")).toBe(true)
+		expect(log.some((o) => o.kind === "move")).toBe(false)
 	})
 
 	test("cancel() before the correction stops it and leaves no entry", async () => {
 		const a = new ZoneAnimator()
-		const xs: number[] = []
-		a.animate("right", [{ hwnd: H, to: to(5) }], 16, (_h, r) => xs.push(r.x))
+		const { ops, log } = recorder(() => ({ x: 0, y: 0, w: 0, h: 0 }))
+		a.animate("right", [{ hwnd: H, to: to(5) }], 16, ops)
 		await sleep(50)
 		a.cancel("right")
-		const n = xs.length
+		const n = log.length
 		await sleep(220)
-		expect(xs.length).toBe(n)
+		expect(log.length).toBe(n)
 		expect(a.has("right")).toBe(false)
 	})
 })
