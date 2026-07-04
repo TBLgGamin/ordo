@@ -17,7 +17,16 @@ describe("RESTORE_PROGRAMS (defaults)", () => {
 	})
 
 	test("includes the newly supported agent CLIs", () => {
-		for (const name of ["gemini", "opencode", "copilot", "qwen", "cursor-agent", "goose", "amp", "droid"]) {
+		for (const name of [
+			"gemini",
+			"opencode",
+			"copilot",
+			"qwen",
+			"cursor-agent",
+			"goose",
+			"amp",
+			"droid",
+		]) {
 			expect(RESTORE_PROGRAMS.has(name)).toBe(true)
 		}
 	})

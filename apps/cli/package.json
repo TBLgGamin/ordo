@@ -1,0 +1,32 @@
+{
+	"name": "ordo",
+	"module": "src/index.ts",
+	"type": "module",
+	"private": true,
+	"bin": {
+		"ordo": "src/index.ts"
+	},
+	"engines": {
+		"bun": ">=1.3.14"
+	},
+	"scripts": {
+		"dev": "bun run --watch src/index.ts __in-window",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.3.14",
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.29.0",
+		"@opentui/core": "^0.4.2",
+		"@xterm/addon-serialize": "^0.14.0",
+		"@xterm/headless": "^6.0.0",
+		"node-llama-cpp": "^3.19.0",
+		"zod": "3"
+	},
+	"trustedDependencies": [
+		"node-llama-cpp"
+	]
+}

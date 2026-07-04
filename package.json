@@ -1,37 +1,24 @@
 {
-	"name": "ordo",
-	"module": "src/index.ts",
-	"type": "module",
+	"name": "ordo-workspace",
 	"private": true,
-	"bin": {
-		"ordo": "src/index.ts"
-	},
+	"type": "module",
+	"workspaces": [
+		"apps/*"
+	],
 	"engines": {
 		"bun": ">=1.3.14"
 	},
 	"scripts": {
-		"dev": "bun run --watch src/index.ts __in-window",
-		"test": "bun test",
-		"typecheck": "tsc --noEmit",
+		"dev": "bun run --cwd apps/cli dev",
+		"test": "bun run --cwd apps/cli test",
+		"typecheck": "bun run --cwd apps/cli typecheck",
 		"lint": "biome lint .",
 		"format": "biome format --write .",
 		"check": "biome check --write .",
-		"verify": "biome check --write . && tsc --noEmit && bun test"
+		"verify": "biome check --write . && bun run --cwd apps/cli typecheck && bun run --cwd apps/cli test"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.1",
-		"@types/bun": "^1.3.14"
-	},
-	"peerDependencies": {
-		"typescript": "^5"
-	},
-	"dependencies": {
-		"@modelcontextprotocol/sdk": "^1.29.0",
-		"@opentui/core": "^0.4.2",
-		"@xterm/addon-serialize": "^0.14.0",
-		"@xterm/headless": "^6.0.0",
-		"node-llama-cpp": "^3.19.0",
-		"zod": "3"
+		"@biomejs/biome": "^2.5.1"
 	},
 	"trustedDependencies": [
 		"node-llama-cpp"

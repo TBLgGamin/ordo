@@ -347,11 +347,29 @@ it never disturbs the terminal you launched it from.
 > snapshot), both through `bun:ffi`; the daemon hosts shells via the Windows
 > ConPTY API (`Bun.Terminal`).
 
-## Project layout
+## Repository layout
+
+ordo is a Bun workspace monorepo:
+
+```
+apps/cli/                  # the ordo CLI + daemon (the published tool; package name "ordo")
+apps/web/                  # landing page (Astro + Vue + Tailwind) — reserved slot, not built yet
+scripts/                   # installers: install.ps1, uninstall.ps1, verify.ps1 (URL-stable path)
+package.json               # workspace root (private, workspaces ["apps/*"])
+tsconfig.base.json         # shared TypeScript config; each app extends it
+biome.json                 # lint + format config
+```
+
+The installer one-liner is unchanged — it clones the repo, runs `bun install`
+at the workspace root, and `bun link` inside `apps/cli`.
+
+## CLI layout (`apps/cli`)
 
 ```
 src/index.ts               # entrypoint: CLI dispatch (new/restore/sessions/delete)
 src/cli/tui.ts             # sessions-sidebar TUI: widgets, actions, keybindings
+src/cli/launch.ts          # launch-intent parsing for the hidden __in-window respawn
+src/cli/usage.ts           # `ordo help` usage text
 src/cli/format.ts          # sidebar styling + relative-time / truncate helpers
 src/cli/sessions.ts        # inline (non-TUI) sessions printer
 src/app/orchestrator.ts    # high-level API: openPane(dir)/kill; talks to the daemon, owns tiling
@@ -363,14 +381,10 @@ src/app/animator.ts        # zone move/resize tween engine
 src/app/title.ts           # local session titling: gather pane activity → Supra-Title-350M (node-llama-cpp)
 src/daemon/daemon.ts       # persistent windowless daemon: TCP server, warm/cold restore, entry
 src/daemon/pane.ts         # one live pane: shell + ConPTY, ring buffer, attached clients
-src/daemon/capture.ts      # append-only raw-VT capture file with tail compaction
 src/daemon/attachClient.ts # thin per-pane process: pipes stdin/stdout to the daemon (no shell)
 src/daemon/daemonClient.ts # orchestrator-side daemon RPC + hidden Start-Process spawn/discovery
 src/daemon/replay.ts       # reconstructs a pane's screen from its raw-VT capture (cold restore)
-src/daemon/vt.ts           # title-strip (OSC 0/1/2), startup-clear suppress, OSC 9;9 cwd, command capture
 src/platform/win32.ts      # user32.dll bindings (find/move/resize windows) via bun:ffi
-src/platform/proctree.ts   # foreground-program detection via Toolhelp snapshot (kernel32)
-src/platform/overlay.ts    # click-through FFI windows drawing the focus border
 src/platform/wt.ts         # typed wrapper around wt.exe (spawn windows/tabs/panes)
 src/core/config.ts         # paths, window target, shell, restore whitelist
 src/core/session.ts        # session JSON (id, title, layout) + paths under %APPDATA%\ordo
@@ -378,10 +392,5 @@ src/core/daemonProtocol.ts # daemon control + attach wire types
 src/core/protocol.ts       # newline-delimited JSON framing (encode / LineDecoder)
 src/core/names.ts          # shared Roman-soldier name pool (sessions + panes)
 src/core/colors.ts         # unique very-light pastel hues + tint helpers
-scripts/install.ps1        # one-shot installer: clone/setup, bun link, model download
 scripts/setup-model.ts     # pre-downloads the title model into %APPDATA%\ordo\models
-scripts/verify.ps1         # format + typecheck + tests (Stop hook)
-biome.json                 # lint + format config
-tsconfig.json              # TypeScript config (Bun bundler mode)
-.claude/                   # Claude Code hooks/settings
 ```

@@ -7,10 +7,10 @@ import {
 	generateSessionId,
 	listSessionNames,
 	loadSession,
+	type SessionState,
 	saveSession,
 	scrollbackDir,
 	scrollbackPath,
-	type SessionState,
 	sessionExists,
 	sessionsDir,
 } from "../src/core/session"
@@ -155,7 +155,10 @@ describe("loadSession validation", () => {
 	})
 
 	test("returns null when satellites is not an array", () => {
-		writeRaw("bad-sats", JSON.stringify({ id: "x", satellites: {}, center: { x: 0, y: 0, w: 1, h: 1 } }))
+		writeRaw(
+			"bad-sats",
+			JSON.stringify({ id: "x", satellites: {}, center: { x: 0, y: 0, w: 1, h: 1 } }),
+		)
 		expect(loadSession("bad-sats")).toBeNull()
 	})
 

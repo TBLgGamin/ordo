@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { ControlEvent, WaitableEvent } from "../src/core/daemonProtocol"
-import { clampInt, type EventWaiterMatch, matchEventWaiter, matchWaiter } from "../src/daemon/messages"
+import {
+	clampInt,
+	type EventWaiterMatch,
+	matchEventWaiter,
+	matchWaiter,
+} from "../src/daemon/messages"
 
 const waiter = (over: Partial<EventWaiterMatch> = {}): EventWaiterMatch => ({
 	session: "s1",
@@ -70,8 +75,14 @@ describe("matchEventWaiter", () => {
 	test("paneExited and paneClosed both map to 'pane-exited'", () => {
 		const exited: ControlEvent = { event: "paneExited", session: "s1", pane: "velite" }
 		const closed: ControlEvent = { event: "paneClosed", session: "s1", pane: "velite" }
-		expect(matchEventWaiter(waiter(), exited)).toMatchObject({ kind: "pane-exited", pane: "velite" })
-		expect(matchEventWaiter(waiter(), closed)).toMatchObject({ kind: "pane-exited", pane: "velite" })
+		expect(matchEventWaiter(waiter(), exited)).toMatchObject({
+			kind: "pane-exited",
+			pane: "velite",
+		})
+		expect(matchEventWaiter(waiter(), closed)).toMatchObject({
+			kind: "pane-exited",
+			pane: "velite",
+		})
 	})
 
 	test("paneCreated maps to 'pane-created' with the new pane name", () => {
@@ -80,7 +91,10 @@ describe("matchEventWaiter", () => {
 			session: "s1",
 			state: { pane: "eques", live: true },
 		}
-		expect(matchEventWaiter(waiter(), created)).toMatchObject({ kind: "pane-created", pane: "eques" })
+		expect(matchEventWaiter(waiter(), created)).toMatchObject({
+			kind: "pane-created",
+			pane: "eques",
+		})
 	})
 
 	test("status maps to 'status-changed' with status/task", () => {

@@ -53,11 +53,16 @@ function Unregister-Command {
 		return
 	}
 	$repo = Split-Path -Parent $PSScriptRoot
-	if (-not (Test-Path (Join-Path $repo 'package.json'))) {
+	$cli = Join-Path $repo 'apps\cli'
+	if (Test-Path (Join-Path $cli 'package.json')) {
+		$linkDir = $cli
+	} elseif (Test-Path (Join-Path $repo 'package.json')) {
+		$linkDir = $repo
+	} else {
 		Write-Info 'could not locate the ordo repo; skipping unlink'
 		return
 	}
-	Push-Location $repo
+	Push-Location $linkDir
 	try {
 		$result = Invoke-Quiet 'bun' @('unlink')
 		if ($result.Code -eq 0) {

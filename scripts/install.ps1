@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 $RepoUrl = 'https://github.com/TBLgGamin/ordo.git'
 $MinBun = [version]'1.3.14'
 $BunBin = Join-Path $HOME '.bun\bin'
+$CliRel = 'apps\cli'
 
 $Esc = [char]27
 $Purple = "$Esc[38;2;214;201;249m"
@@ -56,16 +57,20 @@ function Assert-Windows {
 	}
 }
 
+function Get-PackageName($pkg) {
+	if (-not (Test-Path $pkg)) { return $null }
+	try {
+		return (Get-Content $pkg -Raw | ConvertFrom-Json).name
+	} catch {
+		return $null
+	}
+}
+
 function Test-OrdoRepo($dir) {
 	if (-not $dir) { return $false }
-	$pkg = Join-Path $dir 'package.json'
-	if (-not (Test-Path $pkg)) { return $false }
-	try {
-		$json = Get-Content $pkg -Raw | ConvertFrom-Json
-		return $json.name -eq 'ordo'
-	} catch {
-		return $false
-	}
+	if ((Get-PackageName (Join-Path $dir "$CliRel\package.json")) -eq 'ordo') { return $true }
+	if ((Get-PackageName (Join-Path $dir 'package.json')) -eq 'ordo') { return $true }
+	return $false
 }
 
 function Update-Repo($dir) {
@@ -102,6 +107,22 @@ function Resolve-RepoRoot {
 		Stop-Fatal 'git clone failed.'
 	}
 	$script:RepoRoot = $InstallDir
+}
+
+function Resolve-CliDir {
+	$cli = Join-Path $script:RepoRoot $CliRel
+	if (-not (Test-Path (Join-Path $cli 'package.json'))) {
+		Update-Repo $script:RepoRoot
+	}
+	if (Test-Path (Join-Path $cli 'package.json')) {
+		$script:CliDir = $cli
+		return
+	}
+	if (Test-Path (Join-Path $script:RepoRoot 'package.json')) {
+		$script:CliDir = $script:RepoRoot
+		return
+	}
+	Stop-Fatal "Could not locate the ordo CLI package (expected $CliRel). Re-run with -Update or delete the old clone at $script:RepoRoot."
 }
 
 function Get-BunVersion {
@@ -166,7 +187,7 @@ function Install-Deps {
 
 function Register-Command {
 	Write-Step 'Registering the ordo command'
-	Push-Location $script:RepoRoot
+	Push-Location $script:CliDir
 	try {
 		$result = Invoke-Quiet 'bun' @('link')
 		if ($result.Code -ne 0) {
@@ -221,7 +242,7 @@ function Install-Model {
 		return
 	}
 	Write-Step 'Downloading the title model (~230 MB, one-time)'
-	Push-Location $script:RepoRoot
+	Push-Location $script:CliDir
 	try {
 		$result = Invoke-Quiet 'bun' @('scripts/setup-model.ts')
 		if ($result.Code -ne 0) {
@@ -253,6 +274,7 @@ function Write-Summary {
 
 Assert-Windows
 Resolve-RepoRoot
+Resolve-CliDir
 Ensure-Bun
 Test-RuntimeDeps
 Install-Deps

@@ -38,9 +38,7 @@ describe("slotRects", () => {
 	})
 
 	test("a single slot fills its zone minus the gap on every side", () => {
-		expect(slotRects("right", 1, center, work, 10)).toEqual([
-			{ x: 1210, y: 10, w: 380, h: 1180 },
-		])
+		expect(slotRects("right", 1, center, work, 10)).toEqual([{ x: 1210, y: 10, w: 380, h: 1180 }])
 	})
 
 	test("splits the zone height evenly, stacking vertically", () => {

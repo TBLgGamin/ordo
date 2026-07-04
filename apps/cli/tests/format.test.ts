@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import type { SessionState } from "../src/core/session"
 import { relativeTime, truncate } from "../src/cli/format"
 import { sessionChunks } from "../src/cli/styled"
+import type { SessionState } from "../src/core/session"
 
 describe("relativeTime", () => {
 	const ago = (ms: number) => new Date(Date.now() - ms).toISOString()

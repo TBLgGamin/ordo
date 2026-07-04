@@ -108,7 +108,9 @@ describe("ensureAgentIntegrations (detection-gated agents)", () => {
 	test("a which() hit triggers opencode with an array command", () => {
 		const which = (e: string) => (e === "opencode" ? "C:\\bin\\opencode.exe" : null)
 		expect(byTool(ensureAgentIntegrations(base, { which }), "opencode")?.action).toBe("created")
-		const parsed = JSON.parse(readFileSync(join(base, ".config", "opencode", "opencode.json"), "utf8"))
+		const parsed = JSON.parse(
+			readFileSync(join(base, ".config", "opencode", "opencode.json"), "utf8"),
+		)
 		expect(parsed.mcp.ordo.type).toBe("local")
 		expect(parsed.mcp.ordo.enabled).toBe(true)
 		expect(Array.isArray(parsed.mcp.ordo.command)).toBe(true)
@@ -140,11 +142,10 @@ describe("ensureAgentIntegrations (detection-gated agents)", () => {
 	test("goose writes a YAML extensions block under appData", () => {
 		const appData = join(base, "AppData", "Roaming")
 		const which = (e: string) => (e === "goose" ? "C:\\bin\\goose.exe" : null)
-		expect(byTool(ensureAgentIntegrations(base, { which, appData }), "goose")?.action).toBe("created")
-		const yaml = readFileSync(
-			join(appData, "Block", "goose", "config", "config.yaml"),
-			"utf8",
+		expect(byTool(ensureAgentIntegrations(base, { which, appData }), "goose")?.action).toBe(
+			"created",
 		)
+		const yaml = readFileSync(join(appData, "Block", "goose", "config", "config.yaml"), "utf8")
 		expect(yaml).toContain("extensions:")
 		expect(yaml).toContain("ordo:")
 		expect(yaml).toContain("type: stdio")
@@ -153,6 +154,8 @@ describe("ensureAgentIntegrations (detection-gated agents)", () => {
 	test("detected agents are idempotent on a second run", () => {
 		mkdirSync(join(base, ".gemini"), { recursive: true })
 		ensureAgentIntegrations(base, { which: none })
-		expect(byTool(ensureAgentIntegrations(base, { which: none }), "gemini")?.action).toBe("unchanged")
+		expect(byTool(ensureAgentIntegrations(base, { which: none }), "gemini")?.action).toBe(
+			"unchanged",
+		)
 	})
 })

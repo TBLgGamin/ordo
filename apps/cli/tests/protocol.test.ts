@@ -58,7 +58,9 @@ describe("LineDecoder", () => {
 
 	test("drops a malformed line but keeps valid ones in the same chunk", () => {
 		const dec = new LineDecoder<TestMsg>()
-		const chunk = enc(`this is not json\n${JSON.stringify({ type: "exit", paneId: "a", code: 0 })}\n`)
+		const chunk = enc(
+			`this is not json\n${JSON.stringify({ type: "exit", paneId: "a", code: 0 })}\n`,
+		)
 		expect(dec.push(chunk)).toEqual([{ type: "exit", paneId: "a", code: 0 }])
 	})
 

@@ -10,13 +10,14 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import type { Subprocess } from "bun"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { DaemonClient } from "../src/daemon/daemonClient"
+import type { Subprocess } from "bun"
+import { BUN_EXE, DAEMON_PATH } from "../src/core/config"
 import type { AttachClientMsg, AttachHello } from "../src/core/daemonProtocol"
 import { encode } from "../src/core/protocol"
+import { DaemonClient } from "../src/daemon/daemonClient"
 
 const enc = (o: object) => encode(o)
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -47,7 +48,7 @@ beforeAll(async () => {
 	tmp = mkdtempSync(join(tmpdir(), "ordo-daemon-"))
 	process.env.APPDATA = tmp
 	// Spawn the daemon directly (test-controlled lifecycle, not Start-Process).
-	daemonProc = Bun.spawn(["bun", "src/daemon/daemon.ts"], {
+	daemonProc = Bun.spawn([BUN_EXE, DAEMON_PATH], {
 		env: {
 			...process.env,
 			APPDATA: tmp,
@@ -232,7 +233,7 @@ describe("daemon", () => {
 	test("a second daemon defers to the running one (singleton)", async () => {
 		const infoPath = join(tmp, "ordo", "daemon.json")
 		const before = JSON.parse(await Bun.file(infoPath).text())
-		const second = Bun.spawn(["bun", "src/daemon/daemon.ts"], {
+		const second = Bun.spawn([BUN_EXE, DAEMON_PATH], {
 			env: { ...process.env, APPDATA: tmp },
 			stdin: "ignore",
 			stdout: "ignore",

@@ -27,8 +27,7 @@ function recorder(getRect: () => Rect | null) {
 	return { ops, log }
 }
 
-const lastSet = (log: Op[]): Rect | undefined =>
-	log.filter((o) => o.kind === "set").at(-1)?.rect
+const lastSet = (log: Op[]): Rect | undefined => log.filter((o) => o.kind === "set").at(-1)?.rect
 
 describe("ZoneAnimator", () => {
 	test("applies targets immediately when animMs is 0", () => {

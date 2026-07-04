@@ -1,8 +1,19 @@
 import { describe, expect, test } from "bun:test"
-import { completionCandidates, type CompletionContext } from "../src/cli/complete"
+import { type CompletionContext, completionCandidates } from "../src/cli/complete"
 
 const ctx: CompletionContext = {
-	subcommands: ["send", "agents", "read", "broadcast", "status", "spawn", "new", "restore", "delete", "sessions"],
+	subcommands: [
+		"send",
+		"agents",
+		"read",
+		"broadcast",
+		"status",
+		"spawn",
+		"new",
+		"restore",
+		"delete",
+		"sessions",
+	],
 	panes: ["saggitarius", "optio", "legate"],
 	sessions: ["centurion", "optio-legate"],
 	agents: ["claude", "codex", "gemini"],
