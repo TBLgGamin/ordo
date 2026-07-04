@@ -53,3 +53,30 @@ export async function reconstructScreen(
 	term.dispose()
 	return out
 }
+
+export async function textFromVt(
+	chunks: readonly Uint8Array[],
+	cols: number,
+	rows: number,
+	maxLines: number,
+): Promise<string> {
+	const term = new Terminal({
+		cols: Math.max(1, cols),
+		rows: Math.max(1, rows),
+		scrollback: Math.max(maxLines, rows),
+		allowProposedApi: true,
+	})
+	for (const chunk of chunks) {
+		if (chunk.byteLength === 0) continue
+		await new Promise<void>((resolve) => term.write(chunk, () => resolve()))
+	}
+	const buffer = term.buffer.active
+	const lines: string[] = []
+	for (let i = 0; i < buffer.length; i++) {
+		const line = buffer.getLine(i)
+		lines.push(line ? line.translateToString(true) : "")
+	}
+	term.dispose()
+	while (lines.length > 0 && lines[lines.length - 1]?.trim() === "") lines.pop()
+	return lines.slice(-maxLines).join("\n")
+}

@@ -21,14 +21,12 @@
  */
 
 import {
-	BORDER_THICKNESS,
 	CENTER_FOLLOW_MS,
 	CENTER_IDLE_POLL_MS,
 	CENTER_SETTLE_MS,
 	MIN_WIN_W,
 	SELECT_BORDER_COLOR,
 } from "../core/config"
-import { OverlayFrame } from "../platform/overlay"
 import {
 	getForegroundWindow,
 	getWindowRect,
@@ -78,9 +76,6 @@ export class LayoutManager {
 
 	/** Highlight color last applied to the center (command) window. */
 	private centerHighlight?: string | null
-
-	/** Thick colored frame drawn around the focused window. */
-	private readonly overlay = new OverlayFrame(SELECT_BORDER_COLOR, BORDER_THICKNESS)
 
 	/**
 	 * Capture the center window (the app's own WT window) and its monitor work
@@ -185,7 +180,6 @@ export class LayoutManager {
 			const place = live ? setWindowRectAsync : setWindowRect
 			for (const it of targets) place(it.hwnd, it.to)
 		} else {
-			this.overlay.hide()
 			this.animator.animate(dir, targets, this.animMs)
 		}
 	}
@@ -291,7 +285,6 @@ export class LayoutManager {
 		this.watchTimer = undefined
 		this.centerMoving = false
 		this.clearHighlights()
-		this.overlay.destroy()
 	}
 
 	clearHighlights(): void {
@@ -301,7 +294,6 @@ export class LayoutManager {
 			if (s.appliedHighlight) setWindowHighlight(s.hwnd, null)
 			s.appliedHighlight = null
 		}
-		this.overlay.hide()
 	}
 
 	private followCenter(): void {
@@ -342,19 +334,12 @@ export class LayoutManager {
 			this.centerHighlight = centerDesired
 		}
 
-		let focusedRect: Rect | null = null
-		if (center && center === fg) focusedRect = this.center
 		for (const s of this.sats.values()) {
 			const desired = s.hwnd === fg ? SELECT_BORDER_COLOR : null
 			if (s.appliedHighlight !== desired) {
 				setWindowHighlight(s.hwnd, desired)
 				s.appliedHighlight = desired
 			}
-			if (s.hwnd === fg) focusedRect = getWindowRect(s.hwnd)
 		}
-
-		if (this.animator.hasAny() || this.centerMoving) this.overlay.hide()
-		else if (focusedRect) this.overlay.show(focusedRect)
-		else this.overlay.hide()
 	}
 }

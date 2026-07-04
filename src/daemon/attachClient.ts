@@ -8,7 +8,7 @@
  * Closing the window kills this client but NOT the shell — the daemon keeps it
  * running, so reopening the session re-attaches to the same live shell.
  *
- * Invoked as: bun attachClient.ts --session <name> --pane <id>
+ * Invoked as: bun attachClient.ts <session> <pane>
  */
 
 import { CLIENT_OVERFLOW_BYTES, RESIZE_DEBOUNCE_MS } from "../core/config"
@@ -21,11 +21,6 @@ import { SocketWriter } from "./socketWriter"
 
 const stdinEncoder = new TextEncoder()
 const INPUT_FRAME_BYTES = 64 * 1024
-
-function arg(flag: string): string | undefined {
-	const i = Bun.argv.indexOf(flag)
-	return i >= 0 ? Bun.argv[i + 1] : undefined
-}
 
 function paneSize(): { cols: number; rows: number } {
 	return { cols: process.stdout.columns ?? 80, rows: process.stdout.rows ?? 24 }
@@ -41,9 +36,8 @@ const CONNECT_TIMEOUT_MS = 3000
 const ACK_TIMEOUT_MS = 5000
 
 async function main() {
-	const session = arg("--session")
-	const pane = arg("--pane")
-	if (!session || !pane) throw new Error("client requires --session and --pane")
+	const [session, pane] = Bun.argv.slice(2)
+	if (!session || !pane) throw new Error("client requires <session> <pane>")
 
 	const info = readDaemonInfo()
 	if (!info) throw new Error("session daemon is not running — start ordo first")

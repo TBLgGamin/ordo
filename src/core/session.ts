@@ -42,7 +42,7 @@ export interface SatelliteState {
 export interface SessionState {
 	/**
 	 * Stable unique identifier (a Roman-soldier name). This is the resume key —
-	 * file names, `--restore`/`--delete`, and daemon session keys all use it.
+	 * file names, `restore`/`delete`, and daemon session keys all use it.
 	 */
 	id: string
 	/**

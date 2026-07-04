@@ -21,7 +21,7 @@ describe("isDirection", () => {
 })
 
 const target = ["-w", "0"]
-const cmd = ["bun", "attachClient.ts", "--pane", "optio"]
+const cmd = ["bun", "attachClient.ts", "sess", "optio"]
 
 describe("buildPaneArgs", () => {
 	test("right splits with -V and no swap", () => {

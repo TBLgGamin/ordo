@@ -3,7 +3,7 @@ import { listSessionNames, loadSession, type SessionState } from "../core/sessio
 import { paneCountLabel, relativeTime, sessionHeading, truncate } from "./format"
 
 // ---------------------------------------------------------------------------
-// Session list — `--sessions` (printed inline, no TUI)
+// Session list — `ordo sessions` (printed inline, no TUI)
 // ---------------------------------------------------------------------------
 export function printSessions(): void {
 	const C = {
@@ -43,6 +43,6 @@ export function printSessions(): void {
 				`  ${C.dim}${branch}${C.reset} ${name} ${C.dim}${p.direction.padEnd(5)}${C.reset} ${cmd}`,
 			)
 		})
-		console.log(`  ${C.dim}resume →${C.reset} ${C.green}ordo --restore ${s.id}${C.reset}\n`)
+		console.log(`  ${C.dim}resume →${C.reset} ${C.green}ordo restore ${s.id}${C.reset}\n`)
 	}
 }

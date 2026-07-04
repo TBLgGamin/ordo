@@ -2,6 +2,7 @@ import { statSync } from "node:fs"
 import { join } from "node:path"
 import {
 	BoxRenderable,
+	bold,
 	type CliRenderer,
 	decodePasteBytes,
 	dim,
@@ -13,7 +14,6 @@ import {
 	TextRenderable,
 } from "@opentui/core"
 import { Orchestrator } from "../app/orchestrator"
-import { NEW_SESSION, RESTORE_NAME } from "../core/config"
 import { listSessionNames, loadSession, type SessionState, sessionsDir } from "../core/session"
 import { relativeTime } from "./format"
 import {
@@ -23,6 +23,7 @@ import {
 	type InputResult,
 	type InputState,
 } from "./input"
+import type { LaunchIntent } from "./launch"
 import { PURPLE, sessionChunks } from "./styled"
 
 interface LoadedSession {
@@ -60,14 +61,13 @@ function makeSessionLoader() {
 	}
 }
 
-/** Input-row hints for the two states: a launcher (no session) vs. a live session. */
-const HINT_LAUNCHER = "n new · s open · d delete · ↑↓ scroll"
-const HINT_ACTIVE = "a add · s switch · c close · r rename · ⇥ focus · n new · d delete"
+/** Newest-first cap on the running action log kept in the input pane. */
+const MAX_LOG_LINES = 200
 
 // ---------------------------------------------------------------------------
 // Command center — a session launcher/browser; `n` new, `a` add pane, `s` open
 // ---------------------------------------------------------------------------
-export async function runOrchestrator(renderer: CliRenderer) {
+export async function runOrchestrator(renderer: CliRenderer, launch: LaunchIntent) {
 	const orchestrator = new Orchestrator()
 
 	// Input state: "open"/"delete"/"rename" modes await text typed into the input
@@ -124,14 +124,17 @@ export async function runOrchestrator(renderer: CliRenderer) {
 	const listBox = new BoxRenderable(renderer, { id: "listBox", flexDirection: "column" })
 	scroll.add(listBox)
 
-	// The input area — the rectangle of empty space to the right of the sidebar.
+	// The input area — the rectangle of empty space to the right of the sidebar. It's
+	// two stacked parts: a scrollable running log of every action taken (fills the
+	// space) and, pinned to the bottom, the input line you type ids/titles into.
 	const inputArea = new BoxRenderable(renderer, {
 		id: "inputArea",
 		border: true,
 		borderStyle: "rounded",
 		borderColor: PURPLE,
-		title: " input ",
+		title: " log · input ",
 		titleAlignment: "left",
+		flexDirection: "column",
 		flexGrow: 1,
 		marginLeft: 1,
 		paddingLeft: 1,
@@ -140,8 +143,87 @@ export async function runOrchestrator(renderer: CliRenderer) {
 	})
 	topRow.add(inputArea)
 
-	const promptText = new TextRenderable(renderer, { id: "promptText", content: "", fg: PURPLE })
-	inputArea.add(promptText)
+	// The log: scroll back (mouse wheel) through everything that has happened.
+	const logScroll = new ScrollBoxRenderable(renderer, {
+		id: "logScroll",
+		flexGrow: 1,
+		scrollY: true,
+		scrollX: false,
+		verticalScrollbarOptions: {
+			showArrows: false,
+			trackOptions: { foregroundColor: PURPLE, backgroundColor: "#171520" },
+		},
+	})
+	inputArea.add(logScroll)
+
+	const logBox = new BoxRenderable(renderer, { id: "logBox", flexDirection: "column" })
+	logScroll.add(logBox)
+
+	// The input line — empty at rest (the actions live in the bottom bar), a prompt
+	// while typing an id/title or confirming a delete.
+	const inputLine = new TextRenderable(renderer, {
+		id: "inputLine",
+		content: "",
+		fg: PURPLE,
+		flexShrink: 0,
+		marginTop: 1,
+	})
+	inputArea.add(inputLine)
+
+	let logSeq = 0
+	function appendLog(message: string, level: "info" | "warn" | "error" = "info"): void {
+		const text = message.replace(/^·\s*/, "")
+		const paint =
+			level === "error"
+				? (t: string) => bold(fg(PURPLE)(t))
+				: level === "warn"
+					? (t: string) => fg(PURPLE)(t)
+					: (t: string) => dim(fg(PURPLE)(t))
+		logBox.add(
+			new TextRenderable(renderer, {
+				id: `log-${logSeq++}`,
+				content: new StyledText([paint(`› ${text}`)]),
+			}),
+		)
+		const children = logBox.getChildren()
+		if (children.length > MAX_LOG_LINES) children[0]?.destroy()
+		logScroll.scrollTop = logScroll.scrollHeight
+	}
+
+	function appendMessage(from: string, to: string, text: string, color?: string): void {
+		const accent = color ?? PURPLE
+		const oneLine = text.replace(/\s+/g, " ").trim()
+		const shown = oneLine.length > 80 ? `${oneLine.slice(0, 79)}…` : oneLine
+		logBox.add(
+			new TextRenderable(renderer, {
+				id: `log-${logSeq++}`,
+				content: new StyledText([
+					bold(fg(accent)(`${from} → ${to}`)),
+					dim(fg(accent)(`  ${shown}`)),
+				]),
+			}),
+		)
+		const children = logBox.getChildren()
+		if (children.length > MAX_LOG_LINES) children[0]?.destroy()
+		logScroll.scrollTop = logScroll.scrollHeight
+	}
+
+	function appendStatus(pane: string, status: string, task?: string, color?: string): void {
+		const accent = color ?? PURPLE
+		const clause = status.trim() === "" ? "cleared status" : status.replace(/\s+/g, " ").trim()
+		const chunks = [bold(fg(accent)(`${pane} ·`)), dim(fg(accent)(` ${clause}`))]
+		if (task && task.trim() !== "")
+			chunks.push(dim(fg(accent)(`  (task: ${task.replace(/\s+/g, " ").trim()})`)))
+		logBox.add(
+			new TextRenderable(renderer, {
+				id: `log-${logSeq++}`,
+				content: new StyledText(chunks),
+			}),
+		)
+		const children = logBox.getChildren()
+		if (children.length > MAX_LOG_LINES) children[0]?.destroy()
+		logScroll.scrollTop = logScroll.scrollHeight
+	}
 
 	// One continuous command bar (not separate boxes) linking the two columns.
 	const bottomBar = new BoxRenderable(renderer, {
@@ -169,25 +251,33 @@ export async function runOrchestrator(renderer: CliRenderer) {
 		)
 	}
 
-	function redrawPrompt(status?: string): void {
-		if (status !== undefined) {
-			promptText.content = status
-			return
-		}
+	function redrawInput(): void {
+		const purple = fg(PURPLE)
+		const hint = (t: string) => dim(purple(t))
 		if (mode === "open" || mode === "delete") {
 			const verb = mode === "open" ? "open" : "delete"
-			promptText.content = `${verb} session › ${buffer}▏\n\n(type an id or click one in the sidebar · Esc cancels)`
+			inputLine.content = new StyledText([
+				purple(`${verb} session › ${buffer}▏`),
+				hint("   (type an id or click a session · Esc cancels)"),
+			])
 			return
 		}
 		if (mode === "rename") {
-			promptText.content = `rename session › ${buffer}▏\n\n(type a new title · Enter saves · Esc cancels)`
+			inputLine.content = new StyledText([
+				purple(`rename › ${buffer}▏`),
+				hint("   (Enter saves · Esc cancels)"),
+			])
 			return
 		}
 		if (mode === "confirmDelete") {
-			promptText.content = `delete "${pendingDelete}"? › y / n\n\n(this removes the saved layout and scrollback · Esc cancels)`
+			inputLine.content = new StyledText([
+				purple(`delete "${pendingDelete}"? › `),
+				bold(purple("y / n")),
+				hint("   (Esc cancels)"),
+			])
 			return
 		}
-		promptText.content = `› ${orchestrator.hasSession ? HINT_ACTIVE : HINT_LAUNCHER}`
+		inputLine.content = ""
 	}
 
 	const loadSessions = makeSessionLoader()
@@ -240,9 +330,10 @@ export async function runOrchestrator(renderer: CliRenderer) {
 					flexDirection: "column",
 					flexShrink: 0,
 					marginBottom: 1,
-					// Clicking a session opens it — or arms a delete confirm in delete mode.
-					onMouseDown: () => {
-						if (mode === "delete") armDelete(s.state.id)
+					// Left-click opens a session; right-click (or a click in delete mode)
+					// arms the delete confirmation for it.
+					onMouseDown: (event) => {
+						if (event.button === 2 || mode === "delete") armDelete(s.state.id)
 						else void doOpen(s.state.id)
 					},
 				})
@@ -260,7 +351,7 @@ export async function runOrchestrator(renderer: CliRenderer) {
 			}
 			scroll.scrollTop = savedScroll
 		} catch {
-			redrawPrompt("· session list error")
+			appendLog("session list error", "error")
 		}
 	}
 
@@ -277,7 +368,7 @@ export async function runOrchestrator(renderer: CliRenderer) {
 	function resetMode(): void {
 		mode = "none"
 		buffer = ""
-		redrawPrompt()
+		redrawInput()
 	}
 
 	async function doNew(): Promise<void> {
@@ -308,7 +399,7 @@ export async function runOrchestrator(renderer: CliRenderer) {
 		pendingDelete = trimmed
 		mode = "confirmDelete"
 		buffer = ""
-		redrawPrompt()
+		redrawInput()
 	}
 
 	async function doDelete(id: string): Promise<void> {
@@ -327,7 +418,7 @@ export async function runOrchestrator(renderer: CliRenderer) {
 
 	function doClose(): void {
 		if (!orchestrator.hasSession) {
-			redrawPrompt("· no session open")
+			appendLog("no session open", "warn")
 			return
 		}
 		void orchestrator.closeSessionAction().catch(() => {})
@@ -335,12 +426,12 @@ export async function runOrchestrator(renderer: CliRenderer) {
 
 	function enterMode(next: "open" | "delete" | "rename"): void {
 		if (next === "rename" && !orchestrator.hasSession) {
-			redrawPrompt("· no session to rename")
+			appendLog("no session to rename", "warn")
 			return
 		}
 		mode = next
 		buffer = ""
-		redrawPrompt()
+		redrawInput()
 	}
 
 	makeCommand("n", "n new", () => void doNew())
@@ -353,10 +444,14 @@ export async function runOrchestrator(renderer: CliRenderer) {
 	orchestrator.on((e) => {
 		if (e.type === "panes-changed") {
 			scheduleRender()
-			redrawPrompt()
+			redrawInput()
 		} else if (e.type === "log") {
-			// Transient command feedback shares the input row (no separate log panel).
-			redrawPrompt(`· ${e.message}`)
+			// Every orchestrator event is appended to the scrollable running log.
+			appendLog(e.message, e.level)
+		} else if (e.type === "message") {
+			appendMessage(e.from, e.to, e.text, e.color)
+		} else if (e.type === "status") {
+			appendStatus(e.pane, e.status, e.task, e.color)
 		}
 	})
 
@@ -453,10 +548,10 @@ export async function runOrchestrator(renderer: CliRenderer) {
 				doRename(action.title)
 				break
 			case "status":
-				redrawPrompt(action.message)
+				appendLog(action.message, "warn")
 				break
 			case "redraw":
-				redrawPrompt()
+				redrawInput()
 				break
 			case "none":
 				break
@@ -476,16 +571,16 @@ export async function runOrchestrator(renderer: CliRenderer) {
 	)
 
 	renderSessions()
-	redrawPrompt()
+	redrawInput()
 	renderer.start()
 
 	// Keep relative times current and pick up the live session's continuous saves.
 	refresh = setInterval(renderSessions, 2000)
 
-	// Auto-action from launch flags: --restore opens that session at its saved
-	// geometry, --new starts a fresh one. Otherwise this window stays a launcher —
-	// size its (session-less) command window to the default so it looks right.
-	if (RESTORE_NAME) void orchestrator.openSession(RESTORE_NAME).catch(() => {})
-	else if (NEW_SESSION) void doNew()
+	// restore opens that session at its saved geometry, new starts a fresh one.
+	// Otherwise this window stays a launcher — size its (session-less) command
+	// window to the default so it looks right.
+	if (launch.kind === "restore") void orchestrator.openSession(launch.name).catch(() => {})
+	else if (launch.kind === "new") void doNew()
 	else orchestrator.sizeCenter()
 }

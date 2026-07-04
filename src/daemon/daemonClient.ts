@@ -11,11 +11,18 @@ import type { Socket } from "bun"
 import { BUN_EXE, DAEMON_PATH, powershellExe } from "../core/config"
 import { type DaemonInfo, readDaemonInfo } from "../core/daemonInfo"
 import type {
+	BroadcastResult,
 	ControlEvent,
 	ControlHello,
 	ControlRequest,
 	ControlResponse,
+	EventWaitResult,
+	MessageDelivery,
 	PaneState,
+	RunResult,
+	StatusEntry,
+	WaitableEvent,
+	WaitResult,
 } from "../core/daemonProtocol"
 import { PROTOCOL_VERSION } from "../core/daemonProtocol"
 import { errMessage } from "../core/errors"
@@ -24,6 +31,8 @@ import { ordoDir } from "../core/session"
 import { acquireSpawnLock, releaseSpawnLock } from "./spawnLock"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+const SPAWN_CLIENT_TIMEOUT_MS = 25000
 
 /** Omit that distributes over a union (so each variant keeps its own shape). */
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never
@@ -70,8 +79,8 @@ export class DaemonClient {
 	}
 
 	/** Attempt to attach to a running daemon without ever spawning one. */
-	tryAttach(): Promise<boolean> {
-		return this.tryConnect()
+	tryAttach(opts: { connectTimeoutMs?: number } = {}): Promise<boolean> {
+		return this.tryConnect(opts.connectTimeoutMs)
 	}
 
 	/**
@@ -113,11 +122,11 @@ export class DaemonClient {
 		this.lockPath = undefined
 	}
 
-	private async tryConnect(): Promise<boolean> {
+	private async tryConnect(connectTimeoutMs?: number): Promise<boolean> {
 		const info = readDaemonInfo()
 		if (!info) return false
 		try {
-			await this.connectControl(info)
+			await this.connectControl(info, connectTimeoutMs)
 			const res = await this.request<{ pid: number; v?: number }>({ op: "ping" }, 1500)
 			this.daemonPid = res.pid
 			if (res.v !== undefined && res.v !== PROTOCOL_VERSION) {
@@ -142,7 +151,7 @@ export class DaemonClient {
 		}
 	}
 
-	private connectControl(info: DaemonInfo): Promise<void> {
+	private connectControl(info: DaemonInfo, connectTimeoutMs = 2000): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
 			let settled = false
 			const timer = setTimeout(() => {
@@ -152,7 +161,7 @@ export class DaemonClient {
 					this.sock?.end()
 				} catch {}
 				reject(new Error("connect to daemon timed out"))
-			}, 2000)
+			}, connectTimeoutMs)
 			const succeed = () => {
 				if (settled) return
 				settled = true
@@ -294,13 +303,126 @@ export class DaemonClient {
 	createPane(
 		session: string,
 		pane: string,
-		opts: { cwd?: string; relaunch?: string } = {},
+		opts: { cwd?: string; color?: string; relaunch?: string; launch?: string } = {},
 	): Promise<{ warm: boolean; cold?: boolean; state: PaneState }> {
-		return this.request({ op: "createPane", session, pane, cwd: opts.cwd, relaunch: opts.relaunch })
+		return this.request({
+			op: "createPane",
+			session,
+			pane,
+			cwd: opts.cwd,
+			color: opts.color,
+			relaunch: opts.relaunch,
+			launch: opts.launch,
+		})
+	}
+
+	requestPane(
+		session: string,
+		opts: { requestedBy?: string; name?: string; cwd?: string; agent?: string } = {},
+	): Promise<{ pane: string }> {
+		return this.request(
+			{
+				op: "requestPane",
+				session,
+				requestedBy: opts.requestedBy,
+				name: opts.name,
+				cwd: opts.cwd,
+				agent: opts.agent,
+			},
+			SPAWN_CLIENT_TIMEOUT_MS,
+		)
+	}
+
+	resolveSpawn(requestId: number, res: { pane?: string; error?: string }): Promise<void> {
+		return this.request({ op: "resolveSpawn", requestId, pane: res.pane, error: res.error })
+	}
+
+	broadcast(session: string, opts: { from?: string; text: string }): Promise<BroadcastResult> {
+		return this.request({ op: "broadcast", session, from: opts.from, text: opts.text })
+	}
+
+	setStatus(session: string, pane: string, status: string, task?: string): Promise<void> {
+		return this.request({ op: "setStatus", session, pane, status, task })
+	}
+
+	getStatus(session: string): Promise<{ entries: StatusEntry[] }> {
+		return this.request({ op: "getStatus", session })
+	}
+
+	waitForEvent(
+		session: string,
+		pane: string,
+		opts: {
+			events?: WaitableEvent[]
+			filterPane?: string
+			from?: string
+			timeoutMs?: number
+		} = {},
+	): Promise<EventWaitResult> {
+		const timeoutMs = opts.timeoutMs ?? 60000
+		return this.request(
+			{
+				op: "waitForEvent",
+				session,
+				pane,
+				events: opts.events,
+				filterPane: opts.filterPane,
+				from: opts.from,
+				timeoutMs,
+			},
+			timeoutMs + 5000,
+		)
+	}
+
+	runCommand(
+		session: string,
+		opts: { command: string; cwd?: string; timeoutMs?: number },
+	): Promise<RunResult> {
+		const timeoutMs = opts.timeoutMs ?? 30000
+		return this.request(
+			{ op: "runCommand", session, command: opts.command, cwd: opts.cwd, timeoutMs },
+			timeoutMs + 5000,
+		)
 	}
 
 	getState(session: string): Promise<{ panes: PaneState[] }> {
 		return this.request({ op: "getState", session })
+	}
+
+	sendMessage(
+		session: string,
+		pane: string,
+		opts: { from?: string; text: string; enter?: boolean; raw?: boolean },
+	): Promise<MessageDelivery> {
+		return this.request({
+			op: "sendMessage",
+			session,
+			pane,
+			from: opts.from,
+			text: opts.text,
+			enter: opts.enter,
+			raw: opts.raw,
+		})
+	}
+
+	readPane(session: string, pane: string, lines?: number): Promise<{ text: string }> {
+		return this.request({ op: "readPane", session, pane, lines })
+	}
+
+	waitForMessage(
+		session: string,
+		pane: string,
+		opts: { from?: string; timeoutMs?: number } = {},
+	): Promise<WaitResult> {
+		const timeoutMs = opts.timeoutMs ?? 60000
+		return this.request(
+			{ op: "waitForMessage", session, pane, from: opts.from, timeoutMs },
+			timeoutMs + 5000,
+		)
+	}
+
+	interrupt(session: string, pane: string): Promise<void> {
+		return this.request({ op: "interrupt", session, pane })
 	}
 
 	killPane(session: string, pane: string): Promise<void> {
@@ -324,7 +446,7 @@ export class DaemonClient {
 
 /**
  * Kill every pane of a session in a running daemon, without ever spawning one.
- * Used by CLI `--delete` so the daemon releases its capture-file handles before
+ * Used by CLI `delete` so the daemon releases its capture-file handles before
  * the session's scrollback is removed. No-op if no daemon is running.
  */
 export async function killSessionPanes(session: string): Promise<void> {

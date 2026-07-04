@@ -50,3 +50,5 @@ export interface ManagedPane {
 export type OrchestratorEvent =
 	| { type: "log"; level: "info" | "warn" | "error"; message: string }
 	| { type: "panes-changed" }
+	| { type: "message"; from: string; to: string; text: string; color?: string }
+	| { type: "status"; pane: string; status: string; task?: string; color?: string }

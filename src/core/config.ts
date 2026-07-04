@@ -36,16 +36,6 @@ export function parseArgValue(argv: readonly string[], flag: string): string | u
 	return next
 }
 
-/** Read `--flag value` from the process argv. Rejects a missing or flag-like value. */
-function argValue(flag: string): string | undefined {
-	return parseArgValue(Bun.argv, flag)
-}
-
-/** Whether a bare `--flag` appears anywhere in argv. */
-export function flagPresent(flag: string): boolean {
-	return Bun.argv.includes(flag)
-}
-
 /**
  * Which Windows Terminal window new panes/tabs attach to.
  *
@@ -54,31 +44,9 @@ export function flagPresent(flag: string): boolean {
  * - a name (e.g. `"ordo"`) → a specific named window, for rock-solid attachment.
  * - `"new"` / `"-1"` → always a brand new window.
  *
- * Resolution order: `--window <name>` CLI arg → ORDO_WT_WINDOW env → `"0"`. The
- * CLI arg exists because env vars don't reliably reach a pane spawned by an
- * already-running Windows Terminal server.
+ * Resolution order: ORDO_WT_WINDOW env → `"0"`.
  */
-export const WT_WINDOW = argValue("--window") ?? process.env.ORDO_WT_WINDOW ?? "0"
-
-/** Session name to restore, from `--restore <name>` (undefined = new session). */
-export const RESTORE_NAME = argValue("--restore")
-
-/** `--sessions` lists saved sessions instead of starting one. */
-export const SESSIONS_MODE = Bun.argv.includes("--sessions")
-
-/**
- * Internal flag set on the instance already running inside its own freshly
- * spawned Windows Terminal window. The top-level `ordo` command re-spawns itself
- * into a clean window (so it can capture that window as the fixed center) and
- * passes this flag to the child, which then skips the re-spawn and starts the TUI.
- */
-export const IN_WINDOW = Bun.argv.includes("--in-window")
-
-/** `--delete <name>` deletes a saved session (and its scrollback), then exits. */
-export const DELETE_NAME = argValue("--delete")
-
-/** `--new` starts a fresh session immediately on launch (skips the launcher state). */
-export const NEW_SESSION = Bun.argv.includes("--new")
+export const WT_WINDOW = process.env.ORDO_WT_WINDOW ?? "0"
 
 let powershellExeCache: string | undefined
 
@@ -103,7 +71,22 @@ export function agentShell(): string {
  * ORDO_RESTORE_PROGRAMS (empty string disables relaunch entirely).
  */
 const RESTORE_PROGRAMS_DEFAULT =
-	"vim nvim vi nano emacs claude less more top btop htop python python3 node ssh lazygit"
+	"vim nvim vi nano emacs claude codex kilo kilocode gemini opencode copilot qwen cursor-agent goose amp droid less more top btop htop python python3 node ssh lazygit"
+
+export const AGENT_PROGRAMS: ReadonlySet<string> = new Set([
+	"claude",
+	"codex",
+	"kilo",
+	"kilocode",
+	"gemini",
+	"opencode",
+	"copilot",
+	"qwen",
+	"cursor-agent",
+	"goose",
+	"amp",
+	"droid",
+])
 
 /** Parse a space/comma-separated program list into a lowercased, deduped set. */
 export function parseProgramList(raw: string): Set<string> {
@@ -127,6 +110,9 @@ export const RESTORE_PROGRAMS: ReadonlySet<string> = parseProgramList(
 export const SCROLLBACK_LINES = numEnv("ORDO_SCROLLBACK", 1000, 0, 50000)
 
 export const SEED_TIMEOUT_MS = numEnv("ORDO_SEED_TIMEOUT", 5000, 500, 15000)
+
+/** Delay (ms) between typing a peer message and pressing Enter, so TUI input boxes settle. */
+export const SEND_ENTER_DELAY_MS = numEnv("ORDO_SEND_ENTER_DELAY", 150, 0, 5000)
 
 /** Parse a finite numeric value, clamped to [min, max], falling back to `def`. */
 export function parseNumEnv(
@@ -194,9 +180,6 @@ function validHex(raw: string | undefined): string {
 		: SELECT_COLOR_DEFAULT
 }
 export const SELECT_BORDER_COLOR = validHex(process.env.ORDO_SELECT_COLOR)
-
-/** Thickness (px) of the overlay frame drawn around the focused window. */
-export const BORDER_THICKNESS = numEnv("ORDO_BORDER_THICKNESS", 3, 1, 24)
 
 /**
  * How each satellite window is colored to make it distinct:

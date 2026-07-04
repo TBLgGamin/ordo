@@ -185,6 +185,32 @@ function Register-Command {
 	}
 }
 
+function Install-Completion {
+	Write-Step 'Registering PowerShell tab-completion'
+	$marker = '# >>> ordo completion >>>'
+	try {
+		if (-not (Test-Path $PROFILE)) {
+			New-Item -ItemType File -Path $PROFILE -Force | Out-Null
+		}
+		$current = ''
+		if (Test-Path $PROFILE) { $current = Get-Content $PROFILE -Raw }
+		if ($current -match [regex]::Escape($marker)) {
+			Write-Info 'Completion already in your PowerShell profile'
+			return
+		}
+		$hook = @(
+			''
+			$marker
+			'if (Get-Command ordo -ErrorAction SilentlyContinue) { (ordo completion powershell | Out-String) | Invoke-Expression }'
+			'# <<< ordo completion <<<'
+		) -join "`n"
+		Add-Content -Path $PROFILE -Value $hook
+		Write-Info 'Completion added to your PowerShell profile (open a new shell to use tab-complete)'
+	} catch {
+		Write-Info "Could not update your PowerShell profile: $($_.Exception.Message)"
+	}
+}
+
 function Install-Model {
 	if ($SkipModel) {
 		Write-Step 'Skipping title-model download (-SkipModel)'
@@ -219,8 +245,10 @@ function Write-Summary {
 	Write-Host "$Purple   repo:  $script:RepoRoot$Reset"
 	Write-Host "$Purple   ordo:  $ordoStatus$Reset"
 	Write-Host "$Purple   run:   ordo$Reset"
-	Write-Host "$Purple          ordo --sessions    (list saved sessions)$Reset"
-	Write-Host "$Purple          ordo --new         (start a fresh session)$Reset"
+	Write-Host "$Purple          ordo sessions      (list saved sessions)$Reset"
+	Write-Host "$Purple          ordo new           (start a fresh session)$Reset"
+	Write-Host "$Purple          ordo send <pane> <text>   (message a pane; Tab completes the name)$Reset"
+	Write-Host "$Purple          ordo agents / status      (see peers and their status)$Reset"
 }
 
 Assert-Windows
@@ -229,5 +257,6 @@ Ensure-Bun
 Test-RuntimeDeps
 Install-Deps
 Register-Command
+Install-Completion
 Install-Model
 Write-Summary

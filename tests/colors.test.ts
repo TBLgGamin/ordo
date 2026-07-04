@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { ansiFg, lightTint, PANE_FG, paletteColor } from "../src/core/colors"
+import { ansiFg, colorName, lightTint, PANE_FG, paletteColor } from "../src/core/colors"
 
 const HEX = /^#[0-9a-f]{6}$/
 
@@ -53,4 +53,28 @@ describe("ansiFg", () => {
 
 test("PANE_FG is a dark readable hex", () => {
 	expect(PANE_FG).toMatch(HEX)
+})
+
+describe("colorName", () => {
+	test("names primary hues", () => {
+		expect(colorName("#ff0000")).toBe("red")
+		expect(colorName("#0000ff")).toBe("blue")
+	})
+
+	test("desaturated colors are gray", () => {
+		expect(colorName("#808080")).toBe("gray")
+	})
+
+	test("malformed hex is none", () => {
+		expect(colorName("nope")).toBe("none")
+		expect(colorName("#12")).toBe("none")
+	})
+
+	test("every palette color maps to a stable name", () => {
+		for (let i = 0; i < 12; i++) {
+			const name = colorName(paletteColor(i))
+			expect(name).not.toBe("none")
+			expect(colorName(paletteColor(i))).toBe(name)
+		}
+	})
 })

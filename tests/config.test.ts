@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+	AGENT_PROGRAMS,
 	parseArgValue,
 	parseNumEnv,
 	parseProgramList,
@@ -13,6 +14,22 @@ describe("RESTORE_PROGRAMS (defaults)", () => {
 		expect(RESTORE_PROGRAMS.has("vim")).toBe(true)
 		expect(RESTORE_PROGRAMS.has("claude")).toBe(true)
 		for (const name of RESTORE_PROGRAMS) expect(name).toBe(name.toLowerCase())
+	})
+
+	test("includes the newly supported agent CLIs", () => {
+		for (const name of ["gemini", "opencode", "copilot", "qwen", "cursor-agent", "goose", "amp", "droid"]) {
+			expect(RESTORE_PROGRAMS.has(name)).toBe(true)
+		}
+	})
+})
+
+describe("AGENT_PROGRAMS", () => {
+	test("is a subset of the restore programs and contains the agent CLIs", () => {
+		expect(AGENT_PROGRAMS.has("claude")).toBe(true)
+		expect(AGENT_PROGRAMS.has("gemini")).toBe(true)
+		expect(AGENT_PROGRAMS.has("droid")).toBe(true)
+		expect(AGENT_PROGRAMS.has("vim")).toBe(false)
+		for (const name of AGENT_PROGRAMS) expect(RESTORE_PROGRAMS.has(name)).toBe(true)
 	})
 })
 
@@ -59,15 +76,15 @@ describe("parseNumEnv clamping", () => {
 
 describe("parseArgValue", () => {
 	test("reads a normal value", () => {
-		expect(parseArgValue(["--restore", "mysess"], "--restore")).toBe("mysess")
+		expect(parseArgValue(["--session", "mysess"], "--session")).toBe("mysess")
 	})
 	test("rejects a flag-like value", () => {
-		expect(parseArgValue(["--restore", "--sessions"], "--restore")).toBeUndefined()
+		expect(parseArgValue(["--session", "--lines"], "--session")).toBeUndefined()
 	})
 	test("undefined when the flag is last", () => {
-		expect(parseArgValue(["--restore"], "--restore")).toBeUndefined()
+		expect(parseArgValue(["--session"], "--session")).toBeUndefined()
 	})
 	test("undefined when the flag is absent", () => {
-		expect(parseArgValue(["--other", "x"], "--restore")).toBeUndefined()
+		expect(parseArgValue(["--other", "x"], "--session")).toBeUndefined()
 	})
 })

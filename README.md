@@ -60,10 +60,10 @@ Then, from anywhere:
 
 ```powershell
 ordo                      # open the command center (a launcher; no session yet)
-ordo --new                # open it and start a new session immediately
-ordo --restore <id>       # open it and restore a saved session
-ordo --sessions           # list saved sessions (inline, no window)
-ordo --delete <id>        # delete a saved session + its scrollback
+ordo new                  # open it and start a new session immediately
+ordo restore <id>         # open it and restore a saved session
+ordo sessions             # list saved sessions (inline, no window)
+ordo delete <id>          # delete a saved session + its scrollback
 ```
 
 > The TUI needs a real terminal (TTY). Run it from your terminal, not from a
@@ -216,7 +216,7 @@ just pipes stdin/stdout to the daemon. So:
 
 Every run gets a unique **session id** from Roman-era soldier types
 (`centurion`, `optio`, …; kebab-compounded on collision), shown as the center
-window's tab title. The id is the stable **resume key** (`--restore`/`--delete`).
+window's tab title. The id is the stable **resume key** (`restore`/`delete`).
 A separate, human-friendly **title** is generated from recent activity (see
 [Auto-titled sessions](#auto-titled-sessions)). Layout + per-pane state save
 continuously to:
@@ -231,7 +231,7 @@ continuously to:
 Restore with (the id, not the title):
 
 ```powershell
-ordo --restore <id>
+ordo restore <id>
 ```
 
 It re-opens the center at its saved position and **re-tiles every pane cleanly by
@@ -278,11 +278,11 @@ Layout"*) becomes the session's heading in the browser, with the id beneath it.
 #### Listing sessions
 
 ```powershell
-ordo --sessions              # list sessions (inline, no new window)
-ordo --delete <id>           # delete a session + its scrollback
+ordo sessions                # list sessions (inline, no new window)
+ordo delete <id>             # delete a session + its scrollback
 ```
 
-`ordo --sessions` prints a small tree of every saved session — its generated
+`ordo sessions` prints a small tree of every saved session — its generated
 title (with the id beneath), panes (colored with their pane color) and the last
 command sent to each — straight into the current terminal (no new window):
 
@@ -293,12 +293,12 @@ Running Dev Server
 centurion-optio  2 panes · 3m ago
   ├─ optio          right › npm run dev
   └─ signifer       down  › Get-Process
-  resume → ordo --restore centurion-optio
+  resume → ordo restore centurion-optio
 
 Checking Git Status
 legionary        1 pane · 2h ago
   └─ decanus        left  › git status
-  resume → ordo --restore legionary
+  resume → ordo restore legionary
 ```
 
 ### Try it
@@ -350,10 +350,10 @@ it never disturbs the terminal you launched it from.
 ## Project layout
 
 ```
-src/index.ts               # entrypoint: CLI dispatch (--new/--restore/--sessions/--delete)
+src/index.ts               # entrypoint: CLI dispatch (new/restore/sessions/delete)
 src/cli/tui.ts             # sessions-sidebar TUI: widgets, actions, keybindings
 src/cli/format.ts          # sidebar styling + relative-time / truncate helpers
-src/cli/sessions.ts        # inline (non-TUI) --sessions printer
+src/cli/sessions.ts        # inline (non-TUI) sessions printer
 src/app/orchestrator.ts    # high-level API: openPane(dir)/kill; talks to the daemon, owns tiling
 src/app/types.ts           # ManagedPane / OrchestratorEvent types + small helpers
 src/app/titler.ts          # debounced session-title (re)generation

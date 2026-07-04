@@ -1,6 +1,12 @@
 import { existsSync, rmSync } from "node:fs"
 import type { Socket, Subprocess } from "bun"
-import { agentShell, RESTORE_PROGRAMS, SCROLLBACK_LINES, SEED_TIMEOUT_MS } from "../core/config"
+import {
+	agentShell,
+	RESTORE_PROGRAMS,
+	SCROLLBACK_LINES,
+	SEED_TIMEOUT_MS,
+	SEND_ENTER_DELAY_MS,
+} from "../core/config"
 import type {
 	AttachClientMsg,
 	ControlEvent,
@@ -12,7 +18,7 @@ import { encode, type LineDecoder } from "../core/protocol"
 import { scrollbackPath } from "../core/session"
 import { createPaneJob, type PaneJob } from "../platform/job"
 import { CaptureWriter } from "./capture"
-import { reconstructScreen } from "./replay"
+import { reconstructScreen, textFromVt } from "./replay"
 import type { SocketWriter } from "./socketWriter"
 import { CommandLineTracker, TitleStripper } from "./vt"
 
@@ -35,10 +41,12 @@ export interface SockState {
 
 export interface PaneOpts {
 	cwd?: string
+	color?: string
 	/** Cold restore: reconstruct the saved capture into the buffer before the shell. */
 	replay?: boolean
 	/** Cold restore: re-launch this whitelisted foreground program once up. */
 	relaunch?: string
+	launch?: string
 }
 
 /** One live pane: a shell in a ConPTY, its output ring buffer, and attached clients. */
@@ -65,6 +73,8 @@ export class Pane {
 	private seedDone = false
 	private readonly heldOutput: Uint8Array[] = []
 	private heldBytes = 0
+	private cols = 80
+	private rows = 24
 	readonly state: PaneState
 
 	/** A pane is alive only while its shell process is actually running. */
@@ -82,13 +92,13 @@ export class Pane {
 		const shell = agentShell()
 		const cwd = opts.cwd
 		const capture = scrollbackPath(session, pane)
-		this.state = { pane, cwd, live: true }
+		this.state = { pane, cwd, color: opts.color, live: true }
 
 		// Cold restore: seed the ring with the reconstructed screen so attaching
 		// clients see prior output, and suppress the new shell's startup clear so it
 		// doesn't wipe that seed.
-		const cols = 80
-		const rows = 24
+		const cols = this.cols
+		const rows = this.rows
 		if (opts.replay && existsSync(capture)) {
 			this.pendingSeed = true
 			const finishSeed = (screen: string | null) => {
@@ -141,6 +151,7 @@ export class Pane {
 		this.child = Bun.spawn([shell, ...args], {
 			terminal: this.term,
 			cwd: cwd && existsSync(cwd) ? cwd : undefined,
+			env: { ...process.env, ORDO_SESSION: session, ORDO_PANE: pane },
 			onExit: () => this.dispose(),
 		})
 		this.state.pid = this.child.pid
@@ -150,12 +161,13 @@ export class Pane {
 			this.job = null
 		}
 
+		const launchProg = opts.launch ?? opts.relaunch
 		if (
-			opts.relaunch &&
-			/^[a-zA-Z0-9._-]+$/.test(opts.relaunch) &&
-			RESTORE_PROGRAMS.has(opts.relaunch.toLowerCase())
+			launchProg &&
+			/^[a-zA-Z0-9._-]+$/.test(launchProg) &&
+			RESTORE_PROGRAMS.has(launchProg.toLowerCase())
 		) {
-			const prog = opts.relaunch
+			const prog = launchProg
 			setTimeout(() => {
 				if (this.state.live) this.term.write(`${prog}\r`)
 			}, 800)
@@ -255,10 +267,35 @@ export class Pane {
 		}
 	}
 
+	async sendTyped(text: string, enter: boolean, raw = false): Promise<void> {
+		if (!this.state.live) return
+		if (raw) {
+			this.term.write(text)
+			if (enter) this.term.write("\r")
+			return
+		}
+		this.term.write(`\x1b[200~${text}\x1b[201~`)
+		if (enter) {
+			await new Promise((r) => setTimeout(r, SEND_ENTER_DELAY_MS))
+			if (this.state.live) this.term.write("\r")
+		}
+	}
+
+	interrupt(): void {
+		if (!this.state.live) return
+		this.term.write(new Uint8Array([0x03]))
+	}
+
+	readText(lines: number): Promise<string> {
+		return textFromVt([...this.ring], this.cols, this.rows, lines)
+	}
+
 	resize(cols: number, rows: number): void {
 		if (!this.state.live) return
+		this.cols = Math.max(1, cols)
+		this.rows = Math.max(1, rows)
 		try {
-			this.term.resize(Math.max(1, cols), Math.max(1, rows))
+			this.term.resize(this.cols, this.rows)
 		} catch {}
 	}
 

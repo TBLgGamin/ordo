@@ -48,7 +48,11 @@ beforeAll(async () => {
 	process.env.APPDATA = tmp
 	// Spawn the daemon directly (test-controlled lifecycle, not Start-Process).
 	daemonProc = Bun.spawn(["bun", "src/daemon/daemon.ts"], {
-		env: { ...process.env, APPDATA: tmp },
+		env: {
+			...process.env,
+			APPDATA: tmp,
+			ORDO_RESTORE_PROGRAMS: "whoami cmd node python claude codex kilo kilocode gemini opencode",
+		},
 		stdin: "ignore",
 		stdout: "ignore",
 		stderr: "ignore",
@@ -289,5 +293,215 @@ describe("daemon", () => {
 		const st = await dc.getState("s4")
 		expect(st.panes[0]?.live).toBe(true)
 		await dc.killPane("s4", "eques")
+	}, 15000)
+
+	test("sendMessage types into the target pane and presses Enter", async () => {
+		await dc.createPane("m1", "typed", { cwd: process.cwd() })
+		const a = attach("m1", "typed")
+		await a.ready
+		expect(await waitLive(a)).toBe(true)
+		const del = await dc.sendMessage("m1", "typed", {
+			from: "sender",
+			text: "echo EXECUTED_7",
+			raw: true,
+		})
+		expect(del.delivered).toBe("typed")
+		expect(await waitText(a, "EXECUTED_7")).toBe(true)
+		await dc.killPane("m1", "typed")
+	}, 15000)
+
+	test("waitForMessage receives a message instead of typing it", async () => {
+		await dc.createPane("m2", "waiter", { cwd: process.cwd() })
+		const a = attach("m2", "waiter")
+		await a.ready
+		expect(await waitLive(a)).toBe(true)
+		const waitP = dc.waitForMessage("m2", "waiter", { timeoutMs: 8000 })
+		await delay(150)
+		const del = await dc.sendMessage("m2", "waiter", { from: "alice", text: "PING_123" })
+		expect(del.delivered).toBe("waiter")
+		const res = await waitP
+		expect(res).toMatchObject({ from: "alice", text: "PING_123" })
+		await delay(300)
+		expect(a.output()).not.toContain("PING_123")
+		await dc.killPane("m2", "waiter")
+	}, 15000)
+
+	test("waitForMessage times out when nothing arrives", async () => {
+		await dc.createPane("m3", "lonely", { cwd: process.cwd() })
+		const res = await dc.waitForMessage("m3", "lonely", { timeoutMs: 1000 })
+		expect(res).toEqual({ timeout: true })
+		await dc.killPane("m3", "lonely")
+	}, 15000)
+
+	test("readPane returns recent plain-text output", async () => {
+		await dc.createPane("m4", "reader", { cwd: process.cwd() })
+		const a = attach("m4", "reader")
+		await a.ready
+		expect(await waitLive(a)).toBe(true)
+		a.type("echo READABLE_99\r")
+		expect(await waitText(a, "READABLE_99")).toBe(true)
+		await delay(200)
+		const { text } = await dc.readPane("m4", "reader", 200)
+		expect(text).toContain("READABLE_99")
+		expect(text).not.toContain("\x1b")
+		await dc.killPane("m4", "reader")
+	}, 15000)
+
+	test("sendMessage rejects an unknown pane and self-messaging", async () => {
+		await dc.createPane("m5", "self", { cwd: process.cwd() })
+		const a = attach("m5", "self")
+		await a.ready
+		expect(await waitLive(a)).toBe(true)
+		await expect(dc.sendMessage("m5", "ghost", { from: "x", text: "hi" })).rejects.toThrow(
+			/no such pane/,
+		)
+		await expect(dc.sendMessage("m5", "self", { from: "self", text: "hi" })).rejects.toThrow(
+			/yourself/,
+		)
+		await dc.killPane("m5", "self")
+	}, 15000)
+
+	test("interrupt sends Ctrl-C to a pane", async () => {
+		await dc.createPane("m6", "runner", { cwd: process.cwd() })
+		const a = attach("m6", "runner")
+		await a.ready
+		expect(await waitLive(a)).toBe(true)
+		await dc.interrupt("m6", "runner")
+		const st = await dc.getState("m6")
+		expect(st.panes[0]?.live).toBe(true)
+		await dc.killPane("m6", "runner")
+	}, 15000)
+
+	test("broadcast types into every peer except the sender", async () => {
+		await dc.createPane("bc", "one", { cwd: process.cwd() })
+		await dc.createPane("bc", "two", { cwd: process.cwd() })
+		await dc.createPane("bc", "src", { cwd: process.cwd() })
+		const a1 = attach("bc", "one")
+		const a2 = attach("bc", "two")
+		await Promise.all([a1.ready, a2.ready])
+		expect(await waitLive(a1)).toBe(true)
+		expect(await waitLive(a2)).toBe(true)
+		const { results } = await dc.broadcast("bc", { from: "src", text: "echo BCAST_42" })
+		const panes = results.map((r) => r.pane).sort()
+		expect(panes).toEqual(["one", "two"])
+		expect(await waitText(a1, "BCAST_42")).toBe(true)
+		expect(await waitText(a2, "BCAST_42")).toBe(true)
+		await dc.killPane("bc", "one")
+		await dc.killPane("bc", "two")
+		await dc.killPane("bc", "src")
+	}, 20000)
+
+	test("setStatus/getStatus round-trip, observed by another control, cleared on exit", async () => {
+		const owner = new DaemonClient()
+		await owner.ensure("stt")
+		await owner.createPane("stt", "statuspane", { cwd: process.cwd() })
+		let observedStatus: string | undefined
+		const off = dc.on((e) => {
+			if (e.event === "status" && e.session === "stt") observedStatus = e.status
+		})
+		await owner.setStatus("stt", "statuspane", "reviewing", "pr 42")
+		const got = await owner.getStatus("stt")
+		expect(got.entries.find((x) => x.pane === "statuspane")?.status).toBe("reviewing")
+		expect(got.entries.find((x) => x.pane === "statuspane")?.task).toBe("pr 42")
+		expect(await waitFor(() => observedStatus === "reviewing")).toBe(true)
+		await owner.killPane("stt", "statuspane")
+		const cleared = await waitFor(async () => (await owner.getStatus("stt")).entries.length === 0)
+		expect(cleared).toBe(true)
+		off()
+		owner.stop()
+	}, 15000)
+
+	test("waitForEvent resolves on a pane-exited event", async () => {
+		await dc.createPane("we1", "watcher", { cwd: process.cwd() })
+		await dc.createPane("we1", "victim", { cwd: process.cwd() })
+		const p = dc.waitForEvent("we1", "watcher", { events: ["pane-exited"], timeoutMs: 8000 })
+		await delay(150)
+		await dc.killPane("we1", "victim")
+		expect(await p).toMatchObject({ kind: "pane-exited", pane: "victim" })
+		await dc.killPane("we1", "watcher")
+	}, 15000)
+
+	test("waitForEvent observes a message without consuming it", async () => {
+		await dc.createPane("we2", "obs", { cwd: process.cwd() })
+		await dc.createPane("we2", "recip", { cwd: process.cwd() })
+		const a = attach("we2", "recip")
+		await a.ready
+		expect(await waitLive(a)).toBe(true)
+		const p = dc.waitForEvent("we2", "obs", { events: ["message"], timeoutMs: 8000 })
+		await delay(150)
+		await dc.sendMessage("we2", "recip", { from: "obs", text: "echo OBSERVED_9", raw: true })
+		expect(await p).toMatchObject({ kind: "message", pane: "recip" })
+		expect(await waitText(a, "OBSERVED_9")).toBe(true)
+		await dc.killPane("we2", "obs")
+		await dc.killPane("we2", "recip")
+	}, 15000)
+
+	test("waitForEvent times out cleanly", async () => {
+		await dc.createPane("we3", "idle", { cwd: process.cwd() })
+		const res = await dc.waitForEvent("we3", "idle", {
+			events: ["status-changed"],
+			timeoutMs: 1000,
+		})
+		expect(res).toEqual({ timeout: true })
+		await dc.killPane("we3", "idle")
+	}, 15000)
+
+	test("runCommand returns stdout and an exit code", async () => {
+		const res = await dc.runCommand("rc1", { command: "Write-Output RUNCMD_OK; exit 0" })
+		expect(res.stdout).toContain("RUNCMD_OK")
+		expect(res.exitCode).toBe(0)
+		expect(res.timedOut).toBe(false)
+	}, 15000)
+
+	test("runCommand times out a long-running command", async () => {
+		const res = await dc.runCommand("rc2", {
+			command: "Start-Sleep -Seconds 10",
+			timeoutMs: 1000,
+		})
+		expect(res.timedOut).toBe(true)
+	}, 15000)
+
+	test("spawn broker: the owner answers a requestPane with a new pane", async () => {
+		const owner = new DaemonClient()
+		await owner.ensure("sp1")
+		const off = owner.on((e) => {
+			if (e.event === "spawnRequest" && e.session === "sp1") {
+				void (async () => {
+					const name = e.name ?? "auto"
+					await owner.createPane("sp1", name, { cwd: process.cwd() })
+					await owner.resolveSpawn(e.requestId, { pane: name })
+				})()
+			}
+		})
+		const res = await dc.requestPane("sp1", { requestedBy: "agent", name: "brokered" })
+		expect(res.pane).toBe("brokered")
+		const st = await owner.getState("sp1")
+		expect(st.panes.some((p) => p.pane === "brokered")).toBe(true)
+		off()
+		await owner.killPane("sp1", "brokered")
+		owner.stop()
+	}, 15000)
+
+	test("requestPane is rejected when no command center owns the session", async () => {
+		await expect(dc.requestPane("no-owner-here", { requestedBy: "x" })).rejects.toThrow(
+			/command center/,
+		)
+	}, 15000)
+
+	test("requestPane is rejected if the owner disconnects before answering", async () => {
+		const owner = new DaemonClient()
+		await owner.ensure("sp2")
+		const p = dc.requestPane("sp2", { requestedBy: "x" })
+		await delay(150)
+		owner.stop()
+		await expect(p).rejects.toThrow(/command center closed/)
+	}, 15000)
+
+	test("createPane launch types a whitelisted program into the shell", async () => {
+		await dc.createPane("lp1", "launcher", { cwd: process.cwd(), launch: "whoami" })
+		const a = attach("lp1", "launcher")
+		await a.ready
+		expect(await waitText(a, "whoami")).toBe(true)
+		await dc.killPane("lp1", "launcher")
 	}, 15000)
 })

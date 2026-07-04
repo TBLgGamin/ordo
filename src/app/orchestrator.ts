@@ -7,6 +7,7 @@
  * process, so closing/reopening reattaches to the same live shell.
  */
 
+import { ensureAgentIntegrations } from "../core/agentSetup"
 import { paletteColor } from "../core/colors"
 import {
 	ANIM_MS,
@@ -62,6 +63,9 @@ export class Orchestrator {
 	sessionTitle?: string
 	/** True once the user renamed the session by hand — suppresses the auto-titler. */
 	private manualTitle = false
+	/** While restoring, the saved session file is left intact so the sidebar keeps
+	 * showing every stored pane instead of them vanishing and reappearing one by one. */
+	private restoring = false
 	private pendingRestore?: SessionState
 	private persistTimer?: ReturnType<typeof setInterval>
 	private winEnumAt = 0
@@ -161,6 +165,13 @@ export class Orchestrator {
 		} catch (err) {
 			this.log(`could not set up center window: ${errMessage(err)}`, "error")
 		}
+		try {
+			for (const r of ensureAgentIntegrations()) {
+				if (r.action !== "unchanged") {
+					this.log(`agent integration (${r.tool}): ${r.action}${r.detail ? ` — ${r.detail}` : ""}`)
+				}
+			}
+		} catch {}
 	}
 
 	/** Size + center the command window to the default fraction (launcher / new session). */
@@ -248,10 +259,15 @@ export class Orchestrator {
 		this.sessionTitle = state.title
 		this.manualTitle = state.manualTitle ?? false
 		this.pendingRestore = state
+		this.restoring = true
 		this.layout.setCenterRect(state.center)
 		this.log(`opening "${state.id}": ${state.satellites.length} panes`)
-		await this.beginSession()
-		await this.applyRestore()
+		try {
+			await this.beginSession()
+			await this.applyRestore()
+		} finally {
+			this.restoring = false
+		}
 	}
 
 	/**
@@ -352,7 +368,7 @@ export class Orchestrator {
 		// new ones (via `addPane`) get fresh colors and the next zone in turn.
 		this.colorIndex = Math.max(this.colorIndex, state.satellites.length)
 		this.dirCycleIndex = Math.max(this.dirCycleIndex, state.satellites.length)
-		this.persistNow()
+		this.persistNow(true)
 		this.log(`restored session "${this.sessionId}"`)
 		// Refresh the title from the restored panes' (now live) scrollback.
 		this.titler.schedule()
@@ -363,6 +379,7 @@ export class Orchestrator {
 
 	/** Schedule a coalesced, trailing save (many rapid events → one write). */
 	private persist(): void {
+		if (this.restoring) return
 		if (this.persistDebounce) return
 		this.persistDebounce = setTimeout(() => {
 			this.persistDebounce = undefined
@@ -370,8 +387,11 @@ export class Orchestrator {
 		}, 300)
 	}
 
-	/** Write the current layout to the session file now, skipping an unchanged save. */
-	private persistNow(): void {
+	/** Write the current layout to the session file now, skipping an unchanged save.
+	 * Guarded during restore (except the final `force`d write) so the saved pane list
+	 * isn't overwritten with a half-spawned set while panes are still coming up. */
+	private persistNow(force = false): void {
+		if (this.restoring && !force) return
 		if (this.persistDebounce) {
 			clearTimeout(this.persistDebounce)
 			this.persistDebounce = undefined
@@ -472,6 +492,16 @@ export class Orchestrator {
 	/** Per-pane state pushed by the daemon (cwd/lastCommand/foreground/pid) and exits. */
 	private onDaemonEvent(e: ControlEvent): void {
 		if (e.session !== this.sessionId) return
+		if (e.event === "message") {
+			this.emit({
+				type: "message",
+				from: e.from,
+				to: e.to,
+				text: e.text,
+				color: this.panes.get(e.from)?.color,
+			})
+			return
+		}
 		if (e.event === "paneExited") {
 			if (this.layout.has(e.pane)) this.layout.remove(e.pane)
 			this.panes.delete(e.pane)
@@ -491,6 +521,21 @@ export class Orchestrator {
 			this.persist()
 			return
 		}
+		if (e.event === "spawnRequest") {
+			void this.handleSpawnRequest(e)
+			return
+		}
+		if (e.event === "status") {
+			this.emit({
+				type: "status",
+				pane: e.pane,
+				status: e.status,
+				task: e.task,
+				color: this.panes.get(e.pane)?.color,
+			})
+			return
+		}
+		if (e.event === "paneCreated") return
 		// e.event === "pane": merge the daemon's view into our ManagedPane.
 		const s = e.state
 		const pane = this.panes.get(s.pane)
@@ -523,6 +568,37 @@ export class Orchestrator {
 		if (newCommand) this.titler.schedule()
 	}
 
+	private async handleSpawnRequest(
+		e: Extract<ControlEvent, { event: "spawnRequest" }>,
+	): Promise<void> {
+		try {
+			const id = await this.serialize(() =>
+				this.addPaneCore({ cwd: e.cwd, name: e.name, launch: e.agent }),
+			)
+			if (id) {
+				await this.daemon.resolveSpawn(e.requestId, { pane: id })
+				this.log(`pane "${id}" spawned by ${e.requestedBy ?? "an agent"}`)
+			} else {
+				await this.daemon.resolveSpawn(e.requestId, {
+					error: "ordo could not open a pane (no active session)",
+				})
+			}
+		} catch (err) {
+			try {
+				await this.daemon.resolveSpawn(e.requestId, { error: errMessage(err) })
+			} catch {}
+			this.log(`spawn request from ${e.requestedBy ?? "agent"} failed: ${errMessage(err)}`, "error")
+		}
+	}
+
+	private isNameFree(name: string): boolean {
+		if (!/^[a-z][a-z0-9-]*$/i.test(name)) return false
+		const taken = new Set<string>(this.panes.keys())
+		taken.add(this.sessionId)
+		for (const w of this.terminalWindows(WINDOW_ENUM_TTL_MS)) taken.add(w.title)
+		return !taken.has(name)
+	}
+
 	/** A unique soldier name for a new pane (avoids existing panes, the session, and open windows). */
 	private nextId(): string {
 		const taken = new Set<string>(this.panes.keys())
@@ -539,7 +615,7 @@ export class Orchestrator {
 
 	/** argv that launches a thin pane client attached to the daemon for `paneId`. */
 	private clientCommandline(paneId: string): string[] {
-		return [BUN_EXE, CLIENT_PATH, "--session", this.sessionId, "--pane", paneId]
+		return [BUN_EXE, CLIENT_PATH, this.sessionId, paneId]
 	}
 
 	/** Zones a new pane cycles through, in order, each time you add one. */
@@ -562,15 +638,17 @@ export class Orchestrator {
 		return this.serialize(() => this.addPaneCore(opts))
 	}
 
-	private async addPaneCore(opts: { cwd?: string } = {}): Promise<string | null> {
+	private async addPaneCore(
+		opts: { cwd?: string; name?: string; launch?: string } = {},
+	): Promise<string | null> {
 		if (!this.hasSession) {
 			this.log("no active session — press n to start one", "warn")
 			return null
 		}
 		const direction = this.nextDirection()
-		const id = this.nextId()
+		const id = opts.name && this.isNameFree(opts.name) ? opts.name : this.nextId()
 		const hue = COLOR_MODE === "off" ? undefined : paletteColor(this.colorIndex++)
-		await this.spawnSatellite({ id, direction, color: hue, cwd: opts.cwd })
+		await this.spawnSatellite({ id, direction, color: hue, cwd: opts.cwd, launch: opts.launch })
 		return id
 	}
 
@@ -584,6 +662,7 @@ export class Orchestrator {
 		rect?: Rect
 		/** Whitelisted program to re-launch on a cold restore (daemon-side). */
 		relaunch?: string
+		launch?: string
 	}): Promise<void> {
 		const { id, direction } = spec
 		const useTab = COLOR_MODE !== "off" && (COLOR_MODE === "tab" || COLOR_MODE === "both")
@@ -603,7 +682,9 @@ export class Orchestrator {
 			// it — cold-restoring from the capture + cwd when the daemon was restarted.
 			const res = await this.daemon.createPane(this.sessionId, id, {
 				cwd,
+				color: spec.color,
 				relaunch: spec.relaunch,
+				launch: spec.launch,
 			})
 			this.log(
 				`pane "${id}" ${res.warm ? "reattached (warm)" : res.cold ? "cold-restored" : "created"}`,

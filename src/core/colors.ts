@@ -69,6 +69,40 @@ export function lightTint(hex: string, amount = 0.62): string {
 	return toHex(mix(c.r), mix(c.g), mix(c.b))
 }
 
+const HUE_NAMES = [
+	"red",
+	"orange",
+	"amber",
+	"yellow",
+	"lime",
+	"green",
+	"teal",
+	"cyan",
+	"blue",
+	"violet",
+	"purple",
+	"pink",
+]
+
+/** A short human hue name for `hex` so agents can discern each other by color. */
+export function colorName(hex: string): string {
+	const c = parseHex(hex)
+	if (!c) return "none"
+	const r = c.r / 255
+	const g = c.g / 255
+	const b = c.b / 255
+	const max = Math.max(r, g, b)
+	const min = Math.min(r, g, b)
+	const delta = max - min
+	if (delta < 0.02) return "gray"
+	let h = 0
+	if (max === r) h = ((g - b) / delta) % 6
+	else if (max === g) h = (b - r) / delta + 2
+	else h = (r - g) / delta + 4
+	h = (((h * 60) % 360) + 360) % 360
+	return HUE_NAMES[Math.round(h / 30) % 12] ?? "none"
+}
+
 /** A 24-bit ANSI foreground escape for `hex` (empty string for a malformed hex). */
 export function ansiFg(hex: string): string {
 	const c = parseHex(hex)
