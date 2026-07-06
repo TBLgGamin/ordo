@@ -1,0 +1,29 @@
+---
+import Layout from "@/layouts/Layout.astro"
+import Header from "@/components/Header.astro"
+import Hero from "@/components/Hero.astro"
+import AgentStrip from "@/components/AgentStrip.astro"
+import Features from "@/components/Features.astro"
+import Orchestration from "@/components/Orchestration.astro"
+import Sessions from "@/components/Sessions.astro"
+import Cli from "@/components/Cli.astro"
+import Install from "@/components/Install.astro"
+import Footer from "@/components/Footer.astro"
+---
+
+<Layout
+	title="ordo — a terminal multiplexer for orchestrating AI agents"
+	description="ordo tiles your AI coding agents around your terminal in real windows, wires them together over MCP, and keeps every shell alive in a daemon that survives closed windows and reboots. Windows Terminal, one-command install."
+>
+	<Header />
+	<main>
+		<Hero />
+		<AgentStrip />
+		<Features />
+		<Orchestration />
+		<Sessions />
+		<Cli />
+		<Install />
+	</main>
+	<Footer />
+</Layout>

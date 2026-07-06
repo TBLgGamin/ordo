@@ -1,0 +1,71 @@
+@import "tailwindcss";
+@import "@fontsource/titillium-web/400.css";
+@import "@fontsource/titillium-web/600.css";
+@import "@fontsource/titillium-web/700.css";
+@import "@fontsource/titillium-web/900.css";
+
+:root {
+	--background: #0b0e14;
+	--foreground: #e7e9ee;
+	--card: #10131b;
+	--card-foreground: #e7e9ee;
+	--popover: #10131b;
+	--popover-foreground: #e7e9ee;
+	--primary: #d6c9f9;
+	--primary-foreground: #0b0e14;
+	--secondary: #171a23;
+	--secondary-foreground: #e7e9ee;
+	--muted: #171a23;
+	--muted-foreground: #8f95a3;
+	--accent: #171520;
+	--accent-foreground: #d6c9f9;
+	--destructive: #f2b8b5;
+	--border: #23262b;
+	--input: #23262b;
+	--ring: #d6c9f9;
+	--radius: 0.625rem;
+}
+
+@theme inline {
+	--font-sans: "Titillium Web", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	html {
+		color-scheme: dark;
+		scroll-behavior: auto;
+	}
+	body {
+		@apply bg-background text-foreground font-sans antialiased;
+	}
+	::selection {
+		background: var(--primary);
+		color: var(--primary-foreground);
+	}
+}

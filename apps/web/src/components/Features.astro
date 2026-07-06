@@ -1,0 +1,75 @@
+---
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import SectionHeading from "@/components/SectionHeading.astro"
+
+const features = [
+	{
+		title: "Tiled, never stacked",
+		description:
+			"Your terminal stays fixed in the center while agent panes tile around it in columns and strips. Windows never overlap — adding a pane reshapes the formation instead of burying it.",
+		icon: `<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>`,
+	},
+	{
+		title: "The formation follows you",
+		description:
+			"Drag or resize the center window — even onto another monitor — and every satellite re-tiles around it. The focused window wears the purple highlight so you never lose your place.",
+		icon: `<path d="M12 2v20"/><path d="m15 19-3 3-3-3"/><path d="m19 9 3 3-3 3"/><path d="M2 12h20"/><path d="m5 9-3 3 3 3"/><path d="m9 5 3-3 3 3"/>`,
+	},
+	{
+		title: "Agents that talk to each other",
+		description:
+			"Every pane gets ordo's MCP tools automatically: list peers, send messages, read output, broadcast, wait for replies, spawn more agents. One agent can run the whole room.",
+		icon: `<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/>`,
+	},
+	{
+		title: "A daemon that keeps watch",
+		description:
+			"Shells live in a hidden daemon, not in the window. Close a window and the agent keeps working. Reopen the session and you are back inside the same live shell.",
+		icon: `<rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/>`,
+	},
+	{
+		title: "Restores that actually restore",
+		description:
+			"Sessions save themselves continuously. Even after a reboot, ordo rebuilds every pane with its scrollback, working directory and the agent that was running in it.",
+		icon: `<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>`,
+	},
+	{
+		title: "Titles itself, locally",
+		description:
+			"A tiny local model reads each session and names it after what you are actually doing. No API calls, no cloud — it runs in-process and stays out of your way.",
+		icon: `<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>`,
+	},
+]
+---
+
+<section id="features" class="border-b">
+	<div class="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+		<SectionHeading eyebrow="features" title="A command center, not another tab bar.">
+			<p>
+				Other multiplexers hide your agents in splits and tabs. ordo gives every agent a real
+				window, arranged around you like a formation — visible, addressable, disposable.
+			</p>
+		</SectionHeading>
+		<div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			{features.map((feature) => (
+				<Card class="gap-0 py-5">
+					<CardHeader class="gap-3 px-5">
+						<svg
+							class="size-6 text-primary"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.5"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							aria-hidden="true"
+							set:html={feature.icon}
+						/>
+						<CardTitle class="text-lg">{feature.title}</CardTitle>
+						<CardDescription class="text-sm leading-relaxed">{feature.description}</CardDescription>
+					</CardHeader>
+				</Card>
+			))}
+		</div>
+	</div>
+</section>

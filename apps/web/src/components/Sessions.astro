@@ -1,0 +1,63 @@
+---
+import SectionHeading from "@/components/SectionHeading.astro"
+import TerminalWindow from "@/components/TerminalWindow.astro"
+import MediaPlaceholder from "@/components/MediaPlaceholder.astro"
+
+const points = [
+	{
+		title: "Warm restore",
+		description: "Reopen a session while the daemon lives and every pane reattaches to its still-running shell. Nothing restarts, nothing is lost.",
+	},
+	{
+		title: "Cold restore",
+		description: "After a reboot, panes are rebuilt from captured scrollback and working directories, and the agent that was running is launched again.",
+	},
+	{
+		title: "Names with rank",
+		description: "Every session gets a stable Roman id like centurion-optio, and a local model writes the human title from what is on screen.",
+	},
+]
+---
+
+<section id="sessions" class="border-b">
+	<div class="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+		<div class="grid items-start gap-12 lg:grid-cols-2 lg:gap-16">
+			<div class="flex flex-col gap-4 lg:order-2">
+				<TerminalWindow title="ordo sessions">
+					<pre class="whitespace-pre"><span class="font-bold text-primary">● Refactor the session store</span>
+<span class="text-muted-foreground">  centurion-optio</span>
+<span class="text-muted-foreground">  4 panes · 2m ago</span>
+
+<span class="font-bold text-primary">Ship the landing page</span>
+<span class="text-muted-foreground">  aquilifer-signifer</span>
+<span class="text-muted-foreground">  2 panes · yesterday</span>
+
+<span class="font-bold text-primary">Chase the flaky daemon test</span>
+<span class="text-muted-foreground">  princeps-hastatus</span>
+<span class="text-muted-foreground">  3 panes · 3d ago</span></pre>
+				</TerminalWindow>
+				<MediaPlaceholder
+					kind="video"
+					aspect="aspect-video"
+					label="Screen recording (~25s): close the whole ordo session mid-task, show the desktop empty, then run `ordo restore` and watch every window come back exactly where it was — same layout, same scrollback, agent still mid-conversation."
+				/>
+			</div>
+			<div class="lg:order-1">
+				<SectionHeading eyebrow="persistence" title="Close everything. Lose nothing.">
+					<p>
+						Your shells do not live in the windows — they live in a hidden daemon that keeps
+						running after every window is gone. A closed window is just a detached one.
+					</p>
+				</SectionHeading>
+				<dl class="mt-8 flex flex-col gap-6">
+					{points.map((point) => (
+						<div class="border-l-2 border-primary/40 pl-4">
+							<dt class="font-semibold">{point.title}</dt>
+							<dd class="mt-1 text-sm text-muted-foreground">{point.description}</dd>
+						</div>
+					))}
+				</dl>
+			</div>
+		</div>
+	</div>
+</section>

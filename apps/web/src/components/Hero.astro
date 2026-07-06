@@ -1,0 +1,41 @@
+---
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import CopyCommand from "@/components/CopyCommand.vue"
+import MediaPlaceholder from "@/components/MediaPlaceholder.astro"
+
+const installCommand = "irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.ps1 | iex"
+---
+
+<section id="top" class="border-b">
+	<div class="mx-auto grid w-full max-w-6xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:gap-16 lg:py-28">
+		<div class="flex flex-col items-start gap-6">
+			<Badge variant="outline" class="font-mono text-xs text-muted-foreground">
+				Windows · Windows Terminal · Bun
+			</Badge>
+			<h1 class="text-4xl font-black tracking-tight text-balance sm:text-5xl lg:text-6xl">
+				Bring <span class="text-primary">order</span> to your AI agents.
+			</h1>
+			<p class="max-w-xl text-lg text-muted-foreground">
+				ordo is a terminal multiplexer for orchestrating AI agents. It tiles Claude, Codex,
+				Gemini and friends around your terminal in real windows, wires them together over MCP,
+				and keeps every shell alive in a daemon that outlives the windows.
+			</p>
+			<CopyCommand client:load command={installCommand} prompt="PS>" />
+			<div class="flex flex-wrap items-center gap-3">
+				<Button size="lg" as="a" href="#install">Get started</Button>
+				<Button variant="outline" size="lg" as="a" href="https://github.com/TBLgGamin/ordo">
+					View on GitHub
+				</Button>
+			</div>
+			<p class="font-mono text-xs text-muted-foreground">
+				free &amp; open source · one command install · no cloud required
+			</p>
+		</div>
+		<MediaPlaceholder
+			kind="video"
+			aspect="aspect-[4/3] lg:aspect-square xl:aspect-[4/3]"
+			label="Hero loop (15–30s screen recording, muted): a full desktop running an ordo session — the command window fixed in the center, four agent panes tiled around it, the focused pane wearing the purple border highlight. Spawn a new pane and let the formation re-tile, then drag the center window and show every satellite following it."
+		/>
+	</div>
+</section>

@@ -1,5 +1,25 @@
 {
 	"name": "@ordo/web",
 	"private": true,
-	"type": "module"
+	"type": "module",
+	"scripts": {
+		"dev": "astro dev",
+		"build": "astro build",
+		"preview": "astro preview"
+	},
+	"dependencies": {
+		"@astrojs/vue": "^5.0.0",
+		"@fontsource/titillium-web": "^5.2.0",
+		"astro": "^5.0.0",
+		"class-variance-authority": "^0.7.1",
+		"clsx": "^2.1.1",
+		"lucide-vue-next": "^0.525.0",
+		"reka-ui": "^2.3.0",
+		"tailwind-merge": "^3.3.0",
+		"tailwindcss": "^4.1.0",
+		"vue": "^3.5.0"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.1.0"
+	}
 }

@@ -1,0 +1,30 @@
+---
+import { Badge } from "@/components/ui/badge"
+
+const agents = [
+	"Claude Code",
+	"Codex",
+	"Gemini CLI",
+	"GitHub Copilot",
+	"Cursor",
+	"Goose",
+	"Amp",
+	"Kilo Code",
+	"Qwen Code",
+	"OpenCode",
+	"Droid",
+]
+---
+
+<section class="border-b">
+	<div class="mx-auto flex w-full max-w-6xl flex-col items-center gap-5 px-4 py-10 sm:px-6">
+		<p class="font-mono text-xs uppercase tracking-[0.3em] text-muted-foreground">
+			wires itself into the agents you already run
+		</p>
+		<div class="flex flex-wrap justify-center gap-2">
+			{agents.map((agent) => (
+				<Badge variant="secondary" class="px-3 py-1 text-sm font-normal text-muted-foreground">{agent}</Badge>
+			))}
+		</div>
+	</div>
+</section>
