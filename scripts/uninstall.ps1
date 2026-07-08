@@ -1,5 +1,6 @@
 [CmdletBinding()]
 param(
+	[string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\ordo'),
 	[switch]$KeepData
 )
 
@@ -48,33 +49,47 @@ function Stop-Daemon {
 
 function Unregister-Command {
 	Write-Step 'Removing the ordo command'
-	if (-not (Test-CommandExists 'bun')) {
-		Write-Info 'bun not found; skipping unlink'
-		return
-	}
-	$repo = Split-Path -Parent $PSScriptRoot
-	$cli = Join-Path $repo 'apps\cli'
-	if (Test-Path (Join-Path $cli 'package.json')) {
-		$linkDir = $cli
-	} elseif (Test-Path (Join-Path $repo 'package.json')) {
-		$linkDir = $repo
-	} else {
-		Write-Info 'could not locate the ordo repo; skipping unlink'
-		return
-	}
-	Push-Location $linkDir
-	try {
-		$result = Invoke-Quiet 'bun' @('unlink')
-		if ($result.Code -eq 0) {
-			Write-Info 'unlinked the ordo command'
-		} else {
-			Write-Info 'bun unlink reported nothing to remove'
+	$cli = Join-Path $InstallDir 'apps\cli'
+	if ((Test-CommandExists 'bun') -and (Test-Path (Join-Path $cli 'package.json'))) {
+		Push-Location $cli
+		try {
+			$result = Invoke-Quiet 'bun' @('unlink')
+			if ($result.Code -eq 0) {
+				Write-Info 'unlinked the ordo command'
+			}
+		} finally {
+			Pop-Location
 		}
-	} finally {
-		Pop-Location
+	}
+	if (Test-Path $BunBin) {
+		Get-ChildItem -LiteralPath $BunBin -Filter 'ordo*' -ErrorAction SilentlyContinue |
+			Remove-Item -Force -ErrorAction SilentlyContinue
 	}
 	if (Test-CommandExists 'ordo') {
-		Write-Info "if 'ordo' still resolves, remove $BunBin\ordo* by hand"
+		Write-Info "if 'ordo' still resolves, remove stale shims from $BunBin"
+	} else {
+		Write-Info 'ordo command removed'
+	}
+}
+
+function Remove-Completion {
+	Write-Step 'Removing PowerShell tab-completion'
+	try {
+		if (-not (Test-Path $PROFILE)) {
+			Write-Info 'no PowerShell profile found'
+			return
+		}
+		$current = Get-Content $PROFILE -Raw
+		$pattern = "(?ms)\r?\n?# >>> ordo completion >>>.*?# <<< ordo completion <<<\r?\n?"
+		$updated = [regex]::Replace($current, $pattern, '')
+		if ($updated -eq $current) {
+			Write-Info 'no ordo completion block found'
+			return
+		}
+		Set-Content -Path $PROFILE -Value $updated -NoNewline
+		Write-Info 'removed completion from your PowerShell profile'
+	} catch {
+		Write-Info "Could not update your PowerShell profile: $($_.Exception.Message)"
 	}
 }
 
@@ -92,14 +107,25 @@ function Remove-Data {
 	}
 }
 
+function Remove-AppFiles {
+	Write-Step 'Removing ordo application files'
+	if (Test-Path $InstallDir) {
+		Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+		Write-Info "removed $InstallDir"
+	} else {
+		Write-Info 'no application directory to remove'
+	}
+}
+
 Write-Host ''
 Write-Host "$PurpleBold Uninstalling ordo.$Reset"
 Stop-Daemon
 Unregister-Command
+Remove-Completion
+Remove-AppFiles
 Remove-Data
 Write-Host ''
 Write-Host "$PurpleBold ordo removed.$Reset"
 if ($KeepData) {
 	Write-Host "$Purple   data kept at $DataDir$Reset"
 }
-Write-Host "$Purple   the clone itself is untouched - delete it to finish.$Reset"

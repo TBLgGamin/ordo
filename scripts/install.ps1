@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-	[string]$InstallDir = (Join-Path $HOME 'ordo'),
+	[string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\ordo'),
 	[switch]$SkipModel,
 	[switch]$Update
 )
@@ -74,7 +74,7 @@ function Test-OrdoRepo($dir) {
 }
 
 function Update-Repo($dir) {
-	Write-Step 'Updating the clone (git pull --ff-only)'
+	Write-Step 'Updating ordo'
 	$result = Invoke-Quiet 'git' @('-C', $dir, 'pull', '--ff-only')
 	if ($result.Code -ne 0) {
 		Write-Info 'git pull failed; continuing with the existing checkout.'
@@ -82,17 +82,8 @@ function Update-Repo($dir) {
 }
 
 function Resolve-RepoRoot {
-	if ($PSScriptRoot) {
-		$candidate = Split-Path -Parent $PSScriptRoot
-		if (Test-OrdoRepo $candidate) {
-			Write-Step "Using this clone at $candidate"
-			if ($Update) { Update-Repo $candidate }
-			$script:RepoRoot = $candidate
-			return
-		}
-	}
 	if (Test-OrdoRepo $InstallDir) {
-		Write-Step "Using existing install at $InstallDir"
+		Write-Step "Using existing ordo install at $InstallDir"
 		if ($Update) { Update-Repo $InstallDir }
 		$script:RepoRoot = $InstallDir
 		return
@@ -100,11 +91,11 @@ function Resolve-RepoRoot {
 	if (-not (Test-CommandExists 'git')) {
 		Stop-Fatal 'git is required to clone ordo. Install it: winget install Git.Git'
 	}
-	Write-Step "Cloning ordo into $InstallDir"
+	Write-Step "Installing ordo into $InstallDir"
 	$result = Invoke-Quiet 'git' @('clone', $RepoUrl, $InstallDir)
 	if ($result.Code -ne 0) {
 		Show-Output $result.Output
-		Stop-Fatal 'git clone failed.'
+		Stop-Fatal 'Could not download ordo.'
 	}
 	$script:RepoRoot = $InstallDir
 }
@@ -122,7 +113,7 @@ function Resolve-CliDir {
 		$script:CliDir = $script:RepoRoot
 		return
 	}
-	Stop-Fatal "Could not locate the ordo CLI package (expected $CliRel). Re-run with -Update or delete the old clone at $script:RepoRoot."
+	Stop-Fatal "Could not locate the ordo CLI package (expected $CliRel). Re-run with -Update or reinstall ordo."
 }
 
 function Get-BunVersion {
@@ -263,7 +254,7 @@ function Write-Summary {
 	}
 	Write-Host ''
 	Write-Host "$PurpleBold ordo is set up.$Reset"
-	Write-Host "$Purple   repo:  $script:RepoRoot$Reset"
+	Write-Host "$Purple   app:   $script:RepoRoot$Reset"
 	Write-Host "$Purple   ordo:  $ordoStatus$Reset"
 	Write-Host "$Purple   run:   ordo$Reset"
 	Write-Host "$Purple          ordo sessions      (list saved sessions)$Reset"
