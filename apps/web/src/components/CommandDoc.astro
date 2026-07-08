@@ -1,4 +1,6 @@
 ---
+import CodeTerminal from "@/components/CodeTerminal.astro"
+
 interface CommandDocItem {
 	id: string
 	command: string
@@ -17,6 +19,11 @@ interface Props {
 }
 
 const { item } = Astro.props
+const syntaxCode = item.syntax.join("\n")
+const examplesCode =
+	item.examples
+		?.map((example) => `$ ${example.command}\n# ${example.text}`)
+		.join("\n\n") ?? ""
 ---
 
 <article id={item.id} class="min-w-0 max-w-full scroll-mt-24 border-t border-ink/10 py-10 first:border-t-0 first:pt-0">
@@ -62,27 +69,10 @@ const { item } = Astro.props
 		</div>
 
 		<div class="min-w-0 max-w-full" style="min-width: 0; max-width: 100%; width: 100%;">
-			<div class="min-w-0 max-w-full overflow-hidden rounded-lg bg-pine-deep p-4 text-zinc-100 shadow-lg shadow-black/10 ring-1 ring-white/10">
-				<p class="text-xs font-medium uppercase tracking-[0.25em] text-zinc-500">syntax</p>
-				<div class="mt-3 space-y-2 overflow-x-auto font-mono text-xs leading-relaxed">
-					{item.syntax.map((line) => (
-						<pre><code>{line}</code></pre>
-					))}
-				</div>
-			</div>
+			<CodeTerminal title={item.command} label="syntax" code={syntaxCode} />
 
 			{item.examples && item.examples.length > 0 && (
-				<div class="mt-4 min-w-0 max-w-full overflow-hidden rounded-lg border border-ink/10 bg-white/30 p-4 dark:bg-white/[0.03]">
-					<p class="text-xs font-medium uppercase tracking-[0.25em] text-stone">examples</p>
-					<div class="mt-4 space-y-4">
-						{item.examples.map((example) => (
-							<div>
-								<pre class="overflow-x-auto font-mono text-xs text-ink"><code>{example.command}</code></pre>
-								<p class="mt-1.5 text-xs leading-relaxed text-stone">{example.text}</p>
-							</div>
-						))}
-					</div>
-				</div>
+				<CodeTerminal class="mt-4" title="examples" label="run" code={examplesCode} />
 			)}
 		</div>
 	</div>

@@ -1,6 +1,6 @@
 ---
 import { Button } from "@/components/ui/button"
-import OsTabs from "@/components/OsTabs.vue"
+import InstallTerminal from "@/components/InstallTerminal.astro"
 import SectionHeading from "@/components/SectionHeading.astro"
 
 const steps = [
@@ -31,7 +31,7 @@ const steps = [
 			</p>
 		</SectionHeading>
 		<div class="w-full max-w-2xl">
-			<OsTabs client:load />
+			<InstallTerminal />
 		</div>
 		<div class="grid w-full gap-10 text-left sm:grid-cols-3">
 			{steps.map((item) => (

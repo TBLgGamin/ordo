@@ -111,6 +111,25 @@
 	}
 }
 
+.terminal-code .terminal-highlight,
+.terminal-code .terminal-highlight code {
+	margin: 0;
+	background: transparent !important;
+	font-family: var(--font-mono);
+	font-size: 0.8rem;
+	line-height: 1.65;
+}
+
+.terminal-code .terminal-highlight {
+	min-width: max-content;
+	overflow: visible;
+}
+
+.terminal-code .terminal-highlight code {
+	display: block;
+	white-space: pre;
+}
+
 @keyframes logo-marquee {
 	from {
 		transform: translateX(-50%);
