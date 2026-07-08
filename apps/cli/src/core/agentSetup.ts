@@ -189,18 +189,39 @@ function kiloMerge(existing: string | null): MergeOutcome {
 	return { action: "write", content: JSON.stringify(parsed, null, 2) }
 }
 
+/** Drop any `[mcp_servers.ordo]` table (and its subtables) from a TOML text. */
+function removeCodexOrdoBlock(text: string): string {
+	const lines = text.split(/\r?\n/)
+	const out: string[] = []
+	let skipping = false
+	for (const line of lines) {
+		const header = line.match(/^\s*\[([^\]]+)\]/)
+		if (header) {
+			const name = (header[1] ?? "").replace(/["']/g, "")
+			skipping = name === "mcp_servers.ordo" || name.startsWith("mcp_servers.ordo.")
+		}
+		if (!skipping) out.push(line)
+	}
+	return out.join("\n")
+}
+
 function codexMerge(existing: string | null): MergeOutcome {
 	const text = existing ?? ""
-	let has = false
+	let entry: unknown
 	try {
 		const parsed = Bun.TOML.parse(text) as { mcp_servers?: Record<string, unknown> }
-		has = Boolean(parsed?.mcp_servers && "ordo" in parsed.mcp_servers)
+		entry = parsed?.mcp_servers?.ordo
 	} catch {
-		has = /\[mcp_servers\.ordo\]/.test(text)
+		// Unparseable TOML: appending or rewriting blind could corrupt it further.
+		return { action: "skipped", detail: "unparseable config.toml" }
 	}
-	if (has) return { action: "skipped", detail: "ordo entry exists" }
+	// An existing entry only counts if it still points at THIS ordo — a stale
+	// path (moved repo, old install) makes codex spawn a dead server, which it
+	// reports as "Tools: (none)". Rewrite the block whenever it doesn't match.
+	if (pointsAtOrdo(entry)) return { action: "unchanged" }
+	const cleaned = entry === undefined ? text : removeCodexOrdoBlock(text)
 	const block = `[mcp_servers.ordo]\ncommand = ${tomlString(COMMAND)}\nargs = [${ARGS.map(tomlString).join(", ")}]\n`
-	const prefix = text === "" ? "" : text.replace(/\s*$/, "\n\n")
+	const prefix = cleaned.trim() === "" ? "" : cleaned.replace(/\s*$/, "\n\n")
 	return { action: "write", content: prefix + block }
 }
 

@@ -2,14 +2,19 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 function windowsBaseDir(): string {
-	const root =
-		process.env.APPDATA ?? process.env.LOCALAPPDATA ?? process.env.USERPROFILE ?? process.env.HOME
-	if (!root) {
+	const appData = process.env.APPDATA
+	if (appData && appData.trim() !== "") return join(appData, "ordo")
+	// Sanitized environments (some MCP clients strip most env vars) may lack
+	// APPDATA. Derive the standard roaming dir from the home directory so we
+	// resolve the SAME path as processes launched with a full environment —
+	// falling back to USERPROFILE\ordo would silently split the data dir.
+	const home = process.env.USERPROFILE ?? process.env.HOME ?? homedir()
+	if (!home) {
 		throw new Error(
-			"cannot locate a data directory: none of APPDATA, LOCALAPPDATA, USERPROFILE, HOME are set",
+			"cannot locate a data directory: APPDATA, USERPROFILE, and HOME are all unset",
 		)
 	}
-	return join(root, "ordo")
+	return join(home, "AppData", "Roaming", "ordo")
 }
 
 function darwinBaseDir(): string {

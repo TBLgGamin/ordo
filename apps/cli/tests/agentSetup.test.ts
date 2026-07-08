@@ -44,7 +44,7 @@ describe("ensureAgentIntegrations (always-on trio)", () => {
 
 		const second = ensureAgentIntegrations(base, { which: none })
 		expect(byTool(second, "claude")?.action).toBe("unchanged")
-		expect(byTool(second, "codex")?.action).toBe("skipped")
+		expect(byTool(second, "codex")?.action).toBe("unchanged")
 		expect(byTool(second, "kilo")?.action).toBe("unchanged")
 	})
 
@@ -73,7 +73,49 @@ describe("ensureAgentIntegrations (always-on trio)", () => {
 		const text = readFileSync(codexPath(), "utf8")
 		expect(text).toContain("[model]")
 		expect(text).toContain("[mcp_servers.ordo]")
+		expect(byTool(ensureAgentIntegrations(base, { which: none }), "codex")?.action).toBe("unchanged")
+	})
+
+	test("codex: rewrites a stale ordo entry (old path) without touching the rest", () => {
+		mkdirSync(join(base, ".codex"), { recursive: true })
+		writeFileSync(
+			codexPath(),
+			[
+				'[model]',
+				'name = "gpt"',
+				"",
+				"[mcp_servers.ordo]",
+				'command = "C:\\\\old\\\\bun.exe"',
+				'args = ["run", "X:\\\\old\\\\repo\\\\src\\\\index.ts", "mcp"]',
+				"",
+				"[mcp_servers.ordo.env]",
+				'STALE = "1"',
+				"",
+				"[mcp_servers.other]",
+				'command = "keep-me"',
+				"",
+			].join("\n"),
+		)
+		expect(byTool(ensureAgentIntegrations(base, { which: none }), "codex")?.action).toBe("updated")
+		const text = readFileSync(codexPath(), "utf8")
+		expect(text).toContain('[model]')
+		expect(text).toContain("keep-me")
+		expect(text).not.toContain("X:\\\\old\\\\repo")
+		expect(text).not.toContain("STALE")
+		expect(text).toContain("[mcp_servers.ordo]")
+		const parsed = Bun.TOML.parse(text) as {
+			mcp_servers: { ordo: { command: string; args: string[] }; other: { command: string } }
+		}
+		expect(parsed.mcp_servers.ordo.args).toContain("mcp")
+		expect(parsed.mcp_servers.other.command).toBe("keep-me")
+		expect(byTool(ensureAgentIntegrations(base, { which: none }), "codex")?.action).toBe("unchanged")
+	})
+
+	test("codex: unparseable toml is skipped, not clobbered", () => {
+		mkdirSync(join(base, ".codex"), { recursive: true })
+		writeFileSync(codexPath(), "[model\nbroken = ")
 		expect(byTool(ensureAgentIntegrations(base, { which: none }), "codex")?.action).toBe("skipped")
+		expect(readFileSync(codexPath(), "utf8")).toBe("[model\nbroken = ")
 	})
 
 	test("kilo: merges into a commented jsonc file", () => {

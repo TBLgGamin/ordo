@@ -2,14 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { colorName } from "../core/colors"
-import { loadSession } from "../core/session"
+import { listSessionNames, loadSession } from "../core/session"
 import { DaemonClient } from "../daemon/daemonClient"
+import { snapshotProcesses } from "../platform/procScan"
 import { runShellSyntaxName } from "../platform/shell"
 
 const SHELL_SYNTAX = runShellSyntaxName()
 
 const NO_IDENTITY =
-	"This MCP server only works inside an ordo pane (ORDO_SESSION / ORDO_PANE are not set)."
+	"This MCP server only works inside an ordo pane (ORDO_SESSION / ORDO_PANE are not set, and no ordo pane shell was found among this process's ancestors)."
 const NO_DAEMON = "The ordo daemon is not running — is the ordo command center open?"
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean }
@@ -33,6 +34,46 @@ function instructions(session: string, pane: string): string {
 	].join("\n")
 }
 
+/** PIDs of this process and its ancestors (nearest first), from a process snapshot. */
+function ancestorPids(): Set<number> {
+	const parentByPid = new Map(snapshotProcesses().map((p) => [p.pid, p.ppid]))
+	const out = new Set<number>()
+	let pid: number | undefined = process.pid
+	while (pid !== undefined && pid > 0 && !out.has(pid) && out.size < 64) {
+		out.add(pid)
+		pid = parentByPid.get(pid)
+	}
+	return out
+}
+
+/**
+ * Fallback identity when ORDO_SESSION / ORDO_PANE are missing. Some MCP clients
+ * (codex among them) launch servers with a sanitized environment, so the vars
+ * the daemon put in the pane's shell never reach us. But this process is still
+ * a DESCENDANT of that shell, and the daemon tracks each pane's shell PID —
+ * so walk our ancestry and ask the daemon which pane's shell we live under.
+ */
+async function identityFromProcessTree(): Promise<{ session: string; pane: string } | null> {
+	const ancestors = ancestorPids()
+	if (ancestors.size === 0) return null
+	const dc = new DaemonClient()
+	try {
+		if (!(await dc.tryAttach())) return null
+		for (const name of listSessionNames()) {
+			try {
+				const { panes } = await dc.getState(name)
+				const hit = panes.find((p) => p.live && p.pid !== undefined && ancestors.has(p.pid))
+				if (hit) return { session: name, pane: hit.pane }
+			} catch {}
+		}
+		return null
+	} catch {
+		return null
+	} finally {
+		dc.stop()
+	}
+}
+
 async function withDaemon(fn: (dc: DaemonClient) => Promise<ToolResult>): Promise<ToolResult> {
 	const dc = new DaemonClient()
 	try {
@@ -46,8 +87,12 @@ async function withDaemon(fn: (dc: DaemonClient) => Promise<ToolResult>): Promis
 }
 
 export async function runMcpServer(): Promise<void> {
-	const session = process.env.ORDO_SESSION ?? ""
-	const pane = process.env.ORDO_PANE ?? ""
+	let session = process.env.ORDO_SESSION ?? ""
+	let pane = process.env.ORDO_PANE ?? ""
+	if (session === "" || pane === "") {
+		const id = await identityFromProcessTree()
+		if (id) ({ session, pane } = id)
+	}
 	const hasIdentity = session !== "" && pane !== ""
 
 	const server = new McpServer(
