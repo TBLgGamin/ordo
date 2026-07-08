@@ -28,31 +28,32 @@ import {
 	SELECT_BORDER_COLOR,
 } from "../core/config"
 import {
+	type Direction,
 	getForegroundWindow,
 	getWindowRect,
 	getWorkArea,
-	type Hwnd,
 	listTerminalWindows,
 	type Rect,
 	setForegroundWindow,
 	setWindowHighlight,
 	setWindowRect,
 	setWindowRectAsync,
-} from "../platform/win32"
-import type { Direction } from "../platform/wt"
+	type WindowHandle,
+	wmCaps,
+} from "../platform"
 import { ZoneAnimator } from "./animator"
 import { slotRects, zoneRect } from "./geometry"
 
 interface Satellite {
 	id: string
-	hwnd: Hwnd
+	handle: WindowHandle
 	dir: Direction
 	/** Highlight color last applied to this window (so we only repaint on change). */
 	appliedHighlight?: string | null
 }
 
 export class LayoutManager {
-	private centerHwnd: Hwnd | null = null
+	private centerHwnd: WindowHandle | null = null
 	private center: Rect = { x: 0, y: 0, w: 0, h: 0 }
 	private work: Rect = { x: 0, y: 0, w: 0, h: 0 }
 	private readonly sats = new Map<string, Satellite>()
@@ -82,19 +83,19 @@ export class LayoutManager {
 	 * area. Uses the foreground window if it's a Windows Terminal window — true in
 	 * the normal launch flow — and otherwise falls back to the first WT window.
 	 */
-	captureCenter(explicit?: Hwnd): { hwnd: Hwnd; rect: Rect } {
+	captureCenter(explicit?: WindowHandle): { handle: WindowHandle; rect: Rect } {
 		if (explicit !== undefined) {
 			this.centerHwnd = explicit
 		} else {
 			const wtWins = listTerminalWindows()
 			const fg = getForegroundWindow()
-			const fgIsWt = wtWins.some((w) => w.hwnd === fg)
-			this.centerHwnd = fgIsWt ? fg : (wtWins[0]?.hwnd ?? fg)
+			const fgIsWt = wtWins.some((w) => w.handle === fg)
+			this.centerHwnd = fgIsWt ? fg : (wtWins[0]?.handle ?? fg)
 		}
 		if (!this.centerHwnd) throw new Error("no Windows Terminal window found to use as center")
 		this.center = getWindowRect(this.centerHwnd) ?? this.center
 		this.work = getWorkArea(this.centerHwnd) ?? this.work
-		return { hwnd: this.centerHwnd, rect: this.center }
+		return { handle: this.centerHwnd, rect: this.center }
 	}
 
 	get centerRect(): Rect {
@@ -146,7 +147,7 @@ export class LayoutManager {
 			sats: [...this.sats.values()].map((s) => ({
 				id: s.id,
 				dir: s.dir,
-				rect: getWindowRect(s.hwnd) ?? { x: 0, y: 0, w: 0, h: 0 },
+				rect: getWindowRect(s.handle) ?? { x: 0, y: 0, w: 0, h: 0 },
 			})),
 		}
 	}
@@ -170,15 +171,15 @@ export class LayoutManager {
 	): void {
 		const rects = slotRects(dir, zone.length, this.center, this.work, this.gap)
 		const targets = zone
-			.map((s, i) => ({ hwnd: s.hwnd, to: rects[i] }))
+			.map((s, i) => ({ handle: s.handle, to: rects[i] }))
 			.filter((t) => t.to) as Array<{
-			hwnd: Hwnd
+			handle: WindowHandle
 			to: Rect
 		}>
 		if (instant) {
 			this.animator.cancel(dir)
 			const place = live ? setWindowRectAsync : setWindowRect
-			for (const it of targets) place(it.hwnd, it.to)
+			for (const it of targets) place(it.handle, it.to)
 		} else {
 			this.animator.animate(dir, targets, this.animMs)
 		}
@@ -198,8 +199,8 @@ export class LayoutManager {
 	}
 
 	/** Register a satellite window and tile its zone. */
-	add(id: string, hwnd: Hwnd, dir: Direction): void {
-		this.sats.set(id, { id, hwnd, dir })
+	add(id: string, handle: WindowHandle, dir: Direction): void {
+		this.sats.set(id, { id, handle, dir })
 		this.dirty = true
 		this.retile(dir)
 		this.updateFocusHighlight() // a just-spawned pane is usually focused
@@ -209,10 +210,10 @@ export class LayoutManager {
 	 * Register a satellite at an EXACT rect without re-tiling — used when
 	 * restoring a session so windows return to precisely where they were.
 	 */
-	addRestored(id: string, hwnd: Hwnd, dir: Direction, rect: Rect): void {
-		this.sats.set(id, { id, hwnd, dir })
+	addRestored(id: string, handle: WindowHandle, dir: Direction, rect: Rect): void {
+		this.sats.set(id, { id, handle, dir })
 		this.dirty = true
-		setWindowRect(hwnd, rect)
+		setWindowRect(handle, rect)
 		this.updateFocusHighlight()
 	}
 
@@ -248,13 +249,13 @@ export class LayoutManager {
 
 	/** Cycle keyboard focus across the center + satellites by `delta` (+1 next, -1 prev). */
 	focusCycle(delta: number): void {
-		const order: Hwnd[] = [
+		const order: WindowHandle[] = [
 			...(this.centerHwnd ? [this.centerHwnd] : []),
-			...[...this.sats.values()].map((s) => s.hwnd),
+			...[...this.sats.values()].map((s) => s.handle),
 		]
 		if (order.length === 0) return
 		const fg = getForegroundWindow()
-		let idx = order.indexOf(fg)
+		let idx = fg === null ? -1 : order.indexOf(fg)
 		if (idx < 0) idx = 0
 		const next = order[(((idx + delta) % order.length) + order.length) % order.length]
 		if (next) setForegroundWindow(next)
@@ -291,21 +292,21 @@ export class LayoutManager {
 		if (this.centerHwnd && this.centerHighlight) setWindowHighlight(this.centerHwnd, null)
 		this.centerHighlight = null
 		for (const s of this.sats.values()) {
-			if (s.appliedHighlight) setWindowHighlight(s.hwnd, null)
+			if (s.appliedHighlight) setWindowHighlight(s.handle, null)
 			s.appliedHighlight = null
 		}
 	}
 
 	private followCenter(): void {
-		const hwnd = this.centerHwnd
-		if (!hwnd) return
-		const cur = getWindowRect(hwnd)
+		const handle = this.centerHwnd
+		if (!handle) return
+		const cur = getWindowRect(handle)
 		if (!cur || cur.w <= 0 || cur.h <= 0) return // window minimized/gone
 		const c = this.center
 		const moved = cur.x !== c.x || cur.y !== c.y || cur.w !== c.w || cur.h !== c.h
 		if (moved) {
 			this.center = cur
-			this.work = getWorkArea(hwnd) ?? this.work // may be a different monitor now
+			this.work = getWorkArea(handle) ?? this.work // may be a different monitor now
 			this.dirty = true
 			this.centerMoving = true
 			this.lastCenterMove = performance.now()
@@ -325,6 +326,7 @@ export class LayoutManager {
 	 * still gets highlighted.
 	 */
 	private updateFocusHighlight(): void {
+		if (!wmCaps().highlight) return
 		const fg = getForegroundWindow()
 
 		const center = this.centerHwnd
@@ -335,9 +337,9 @@ export class LayoutManager {
 		}
 
 		for (const s of this.sats.values()) {
-			const desired = s.hwnd === fg ? SELECT_BORDER_COLOR : null
+			const desired = s.handle === fg ? SELECT_BORDER_COLOR : null
 			if (s.appliedHighlight !== desired) {
-				setWindowHighlight(s.hwnd, desired)
+				setWindowHighlight(s.handle, desired)
 				s.appliedHighlight = desired
 			}
 		}

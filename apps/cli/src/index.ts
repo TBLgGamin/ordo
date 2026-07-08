@@ -27,8 +27,11 @@ async function main() {
 		return
 	}
 	if (sub === "completion") {
-		const { completionScript } = await import("./cli/completionScripts")
-		const shell = Bun.argv[3] ?? "powershell"
+		const [{ completionScript }, { defaultCompletionShell }] = await Promise.all([
+			import("./cli/completionScripts"),
+			import("./platform/shell"),
+		])
+		const shell = Bun.argv[3] ?? defaultCompletionShell()
 		const script = completionScript(shell)
 		if (script === "") {
 			console.error(`ordo: unknown shell "${shell}" (try powershell, bash, zsh)`)

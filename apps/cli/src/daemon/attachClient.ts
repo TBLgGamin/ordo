@@ -26,6 +26,15 @@ function paneSize(): { cols: number; rows: number } {
 	return { cols: process.stdout.columns ?? 80, rows: process.stdout.rows ?? 24 }
 }
 
+// Pin the OS window's title to the pane id via OSC 0. This is how the
+// orchestrator locates a pane's window across every terminal/OS (Windows Terminal
+// also gets --suppressApplicationTitle, which simply ignores this — no conflict).
+function pinTitle(title: string): void {
+	try {
+		process.stdout.write(`\x1b]0;${title}\x07`)
+	} catch {}
+}
+
 function restoreRawMode(): void {
 	try {
 		;(process.stdin as NodeJS.ReadStream).setRawMode?.(false)
@@ -56,6 +65,7 @@ async function main() {
 		socket: {
 			open: (sock) => {
 				writer = new SocketWriter(sock, CLIENT_OVERFLOW_BYTES, () => process.exit(0))
+				pinTitle(pane)
 				const hello: AttachHello = {
 					kind: "attach",
 					token: info.token,
@@ -117,6 +127,7 @@ async function main() {
 					if (nl === -1) return
 					acked = true
 					if (ackTimer) clearTimeout(ackTimer)
+					pinTitle(pane)
 					payload = chunk.subarray(nl + 1)
 					if (payload.byteLength === 0) return
 				}

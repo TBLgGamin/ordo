@@ -8,7 +8,7 @@
  */
 
 import type { Socket } from "bun"
-import { BUN_EXE, DAEMON_PATH, powershellExe } from "../core/config"
+import { BUN_EXE, DAEMON_PATH } from "../core/config"
 import { type DaemonInfo, readDaemonInfo } from "../core/daemonInfo"
 import type {
 	BroadcastResult,
@@ -28,6 +28,7 @@ import { PROTOCOL_VERSION } from "../core/daemonProtocol"
 import { errMessage, OrdoError } from "../core/errors"
 import { encode, LineDecoder } from "../core/protocol"
 import { ordoDir } from "../core/session"
+import { spawnDetachedDaemon } from "../platform/detached"
 import { acquireSpawnLock, releaseSpawnLock } from "./spawnLock"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -303,15 +304,7 @@ export class DaemonClient {
 	}
 
 	private async spawnDaemon(): Promise<void> {
-		// Start-Process makes the daemon independent of (and outliving) this app,
-		// and -WindowStyle Hidden keeps it windowless. Single-quote the paths.
-		const ps = `Start-Process -FilePath '${BUN_EXE}' -ArgumentList @('run','${DAEMON_PATH}') -WindowStyle Hidden`
-		const proc = Bun.spawn([powershellExe(), "-NoProfile", "-Command", ps], {
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-		})
-		await proc.exited
+		await spawnDetachedDaemon(BUN_EXE, DAEMON_PATH)
 	}
 
 	createPane(

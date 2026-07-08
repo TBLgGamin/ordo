@@ -260,7 +260,10 @@ const DESCRIPTORS: AgentDescriptor[] = [
 	{
 		id: "goose",
 		detect: { exe: "goose" },
-		configPath: (ctx) => join(ctx.appData, "Block", "goose", "config", "config.yaml"),
+		configPath: (ctx) =>
+			process.platform === "win32"
+				? join(ctx.appData, "Block", "goose", "config", "config.yaml")
+				: join(ctx.home, ".config", "goose", "config.yaml"),
 		merge: (existing) => mergeGooseExtension(existing, GOOSE_BLOCK),
 	},
 	{
@@ -305,11 +308,18 @@ export function ensureAgentIntegrations(
 		env?: Record<string, string | undefined>
 	} = {},
 ): SetupResult[] {
+	const env = opts.env ?? process.env
 	const ctx: SetupContext = {
 		home: baseDir,
-		appData: opts.appData ?? process.env.APPDATA ?? join(baseDir, "AppData", "Roaming"),
-		env: opts.env ?? process.env,
+		appData: opts.appData ?? platformAppData(baseDir, env),
+		env,
 		which: opts.which ?? ((e) => Bun.which(e)),
 	}
 	return DESCRIPTORS.map((d) => runDescriptor(d, ctx))
+}
+
+function platformAppData(baseDir: string, env: Record<string, string | undefined>): string {
+	if (process.platform === "win32") return env.APPDATA ?? join(baseDir, "AppData", "Roaming")
+	if (process.platform === "darwin") return join(baseDir, "Library", "Application Support")
+	return env.XDG_CONFIG_HOME ?? join(baseDir, ".config")
 }

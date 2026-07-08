@@ -17,9 +17,8 @@ import {
 	writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
-import type { Rect } from "../platform/win32"
-import type { Direction } from "../platform/wt"
-import { isDirection } from "../platform/wt"
+import type { Direction, Rect } from "../platform"
+import { isDirection } from "../platform"
 import { pickUniqueName } from "./names"
 import { ordoBaseDir } from "./paths"
 

@@ -11,10 +11,8 @@
  */
 
 import { dlopen, FFIType, JSCallback, type Pointer, ptr } from "bun:ffi"
-import { OrdoError } from "../core/errors"
-
-/** A native window handle (HWND). Opaque pointer-sized value. */
-export type Hwnd = Pointer
+import { OrdoError } from "../../core/errors"
+import type { Rect, WindowHandle, WindowInfo, WindowManager, WmCapabilities } from "../types"
 
 function loadUser32() {
 	try {
@@ -84,6 +82,10 @@ function user32() {
 	return user32lib.symbols
 }
 
+function asPtr(handle: WindowHandle): Pointer {
+	return handle as unknown as Pointer
+}
+
 /** Windows Terminal's top-level window class. */
 export const WT_WINDOW_CLASS = "CASCADIA_HOSTING_WINDOW_CLASS"
 
@@ -107,39 +109,31 @@ export function hexToColorref(hex: string): number {
 	return (r | (g << 8) | (b << 16)) >>> 0 // COLORREF = 0x00BBGGRR
 }
 
-function dwmColor(hwnd: Hwnd, attr: number, colorref: number): void {
+function dwmColor(handle: WindowHandle, attr: number, colorref: number): void {
 	if (!dwmapiLib) return
 	const buf = new Uint32Array([colorref >>> 0])
-	dwmapiLib.symbols.DwmSetWindowAttribute(hwnd, attr, ptr(buf), 4)
+	dwmapiLib.symbols.DwmSetWindowAttribute(asPtr(handle), attr, ptr(buf), 4)
 }
 
 /**
  * Highlight a window (Win11): color its border AND title bar with `hex` (and the
  * caption text dark for contrast). `null` resets all three to the default.
  */
-export function setWindowHighlight(hwnd: Hwnd, hex: string | null): void {
+export function setWindowHighlight(handle: WindowHandle, hex: string | null): void {
 	if (hex === null) {
-		dwmColor(hwnd, DWMWA_BORDER_COLOR, DWMWA_COLOR_DEFAULT)
-		dwmColor(hwnd, DWMWA_CAPTION_COLOR, DWMWA_COLOR_DEFAULT)
-		dwmColor(hwnd, DWMWA_TEXT_COLOR, DWMWA_COLOR_DEFAULT)
+		dwmColor(handle, DWMWA_BORDER_COLOR, DWMWA_COLOR_DEFAULT)
+		dwmColor(handle, DWMWA_CAPTION_COLOR, DWMWA_COLOR_DEFAULT)
+		dwmColor(handle, DWMWA_TEXT_COLOR, DWMWA_COLOR_DEFAULT)
 		return
 	}
 	const cr = hexToColorref(hex)
-	dwmColor(hwnd, DWMWA_BORDER_COLOR, cr)
-	dwmColor(hwnd, DWMWA_CAPTION_COLOR, cr)
-	dwmColor(hwnd, DWMWA_TEXT_COLOR, hexToColorref("#202020"))
+	dwmColor(handle, DWMWA_BORDER_COLOR, cr)
+	dwmColor(handle, DWMWA_CAPTION_COLOR, cr)
+	dwmColor(handle, DWMWA_TEXT_COLOR, hexToColorref("#202020"))
 }
 
-/** A screen rectangle in pixels. */
-export interface Rect {
-	x: number
-	y: number
-	w: number
-	h: number
-}
-
-export interface WindowInfo {
-	hwnd: Hwnd
+interface RawWindow {
+	handle: WindowHandle
 	title: string
 	className: string
 }
@@ -152,28 +146,32 @@ const textScratchBytes = new Uint8Array(textScratch.buffer)
 const classScratchBytes = new Uint8Array(classScratch.buffer)
 const wideDecoder = new TextDecoder("utf-16")
 
-function getWindowText(hwnd: Hwnd): string {
-	const len = user32().GetWindowTextW(hwnd, ptr(textScratch), textScratch.length)
+function getWindowText(handle: Pointer): string {
+	const len = user32().GetWindowTextW(handle, ptr(textScratch), textScratch.length)
 	return len > 0 ? wideDecoder.decode(textScratchBytes.subarray(0, len * 2)) : ""
 }
 
-function getClassName(hwnd: Hwnd): string {
-	const len = user32().GetClassNameW(hwnd, ptr(classScratch), classScratch.length)
+function getClassName(handle: Pointer): string {
+	const len = user32().GetClassNameW(handle, ptr(classScratch), classScratch.length)
 	return len > 0 ? wideDecoder.decode(classScratchBytes.subarray(0, len * 2)) : ""
 }
 
 // One persistent JSCallback reused across every enumeration. EnumWindows is
 // synchronous and the runtime single-threaded, so there is no reentrancy: each
 // call resets the sink, runs the enum, and returns the freshly filled array.
-let enumSink: WindowInfo[] = []
+let enumSink: RawWindow[] = []
 let enumCallback: JSCallback | undefined
 
 function enumWindowsCallback(): JSCallback {
 	if (!enumCallback) {
 		enumCallback = new JSCallback(
-			(hwnd: Hwnd) => {
-				if (user32().IsWindowVisible(hwnd)) {
-					enumSink.push({ hwnd, title: getWindowText(hwnd), className: getClassName(hwnd) })
+			(handle: Pointer) => {
+				if (user32().IsWindowVisible(handle)) {
+					enumSink.push({
+						handle: handle as unknown as WindowHandle,
+						title: getWindowText(handle),
+						className: getClassName(handle),
+					})
 				}
 				return 1
 			},
@@ -184,7 +182,7 @@ function enumWindowsCallback(): JSCallback {
 }
 
 /** Enumerate visible top-level windows with their title and class. */
-export function listTopWindows(): WindowInfo[] {
+function listTopWindows(): RawWindow[] {
 	enumSink = []
 	user32().EnumWindows(enumWindowsCallback().ptr, 0n)
 	return enumSink
@@ -192,32 +190,34 @@ export function listTopWindows(): WindowInfo[] {
 
 /** All visible Windows Terminal windows. */
 export function listTerminalWindows(): WindowInfo[] {
-	return listTopWindows().filter((w) => w.className === WT_WINDOW_CLASS)
+	return listTopWindows()
+		.filter((w) => w.className === WT_WINDOW_CLASS)
+		.map((w) => ({ handle: w.handle, title: w.title }))
 }
 
 /** The currently focused window's handle (0 if none). */
-export function getForegroundWindow(): Hwnd {
-	return (user32().GetForegroundWindow() ?? 0) as unknown as Hwnd
+export function getForegroundWindow(): WindowHandle {
+	return (user32().GetForegroundWindow() ?? 0) as unknown as WindowHandle
 }
 
 /** Bring a window to the foreground (best-effort — Windows may restrict it). */
-export function setForegroundWindow(hwnd: Hwnd): boolean {
-	if (!hwnd) return false
-	return user32().SetForegroundWindow(hwnd)
+export function setForegroundWindow(handle: WindowHandle): boolean {
+	if (!handle) return false
+	return user32().SetForegroundWindow(asPtr(handle))
 }
 
 const rectScratch = new Int32Array(4) // left, top, right, bottom
 
-export function getWindowRect(hwnd: Hwnd): Rect | null {
-	if (!user32().GetWindowRect(hwnd, ptr(rectScratch))) return null
+export function getWindowRect(handle: WindowHandle): Rect | null {
+	if (!user32().GetWindowRect(asPtr(handle), ptr(rectScratch))) return null
 	const [left = 0, top = 0, right = 0, bottom = 0] = rectScratch
 	return { x: left, y: top, w: right - left, h: bottom - top }
 }
 
 /** Move + resize a window without changing z-order or stealing focus. */
-export function setWindowRect(hwnd: Hwnd, rect: Rect): boolean {
+export function setWindowRect(handle: WindowHandle, rect: Rect): boolean {
 	return user32().SetWindowPos(
-		hwnd,
+		asPtr(handle),
 		null,
 		Math.round(rect.x),
 		Math.round(rect.y),
@@ -227,9 +227,9 @@ export function setWindowRect(hwnd: Hwnd, rect: Rect): boolean {
 	)
 }
 
-export function setWindowRectAsync(hwnd: Hwnd, rect: Rect): boolean {
+export function setWindowRectAsync(handle: WindowHandle, rect: Rect): boolean {
 	return user32().SetWindowPos(
-		hwnd,
+		asPtr(handle),
 		null,
 		Math.round(rect.x),
 		Math.round(rect.y),
@@ -239,9 +239,9 @@ export function setWindowRectAsync(hwnd: Hwnd, rect: Rect): boolean {
 	)
 }
 
-export function moveWindow(hwnd: Hwnd, x: number, y: number): boolean {
+export function moveWindow(handle: WindowHandle, x: number, y: number): boolean {
 	return user32().SetWindowPos(
-		hwnd,
+		asPtr(handle),
 		null,
 		Math.round(x),
 		Math.round(y),
@@ -251,14 +251,14 @@ export function moveWindow(hwnd: Hwnd, x: number, y: number): boolean {
 	)
 }
 
-export function moveWindows(items: Array<{ hwnd: Hwnd; x: number; y: number }>): boolean {
+export function moveWindows(items: Array<{ handle: WindowHandle; x: number; y: number }>): boolean {
 	if (items.length === 0) return true
 	let hdwp = user32().BeginDeferWindowPos(items.length)
 	if (!hdwp) return moveEach(items)
 	for (const it of items) {
 		hdwp = user32().DeferWindowPos(
 			hdwp,
-			it.hwnd,
+			asPtr(it.handle),
 			null,
 			Math.round(it.x),
 			Math.round(it.y),
@@ -271,9 +271,9 @@ export function moveWindows(items: Array<{ hwnd: Hwnd; x: number; y: number }>):
 	return user32().EndDeferWindowPos(hdwp)
 }
 
-function moveEach(items: Array<{ hwnd: Hwnd; x: number; y: number }>): boolean {
+function moveEach(items: Array<{ handle: WindowHandle; x: number; y: number }>): boolean {
 	let ok = true
-	for (const it of items) ok = moveWindow(it.hwnd, it.x, it.y) && ok
+	for (const it of items) ok = moveWindow(it.handle, it.x, it.y) && ok
 	return ok
 }
 
@@ -282,9 +282,10 @@ const monitorInfoBytes = new Uint8Array(40)
 const monitorInfoView = new DataView(monitorInfoBytes.buffer)
 monitorInfoView.setUint32(0, 40, true)
 
-/** Work area (screen minus taskbar) of the monitor containing `hwnd`. */
-export function getWorkArea(hwnd: Hwnd): Rect | null {
-	const monitor = user32().MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+/** Work area (screen minus taskbar) of the monitor containing `handle`. */
+export function getWorkArea(handle: WindowHandle | null): Rect | null {
+	if (handle === null) return null
+	const monitor = user32().MonitorFromWindow(asPtr(handle), MONITOR_DEFAULTTONEAREST)
 	if (!monitor) return null
 	if (!user32().GetMonitorInfoW(monitor, ptr(monitorInfoBytes))) return null
 	const left = monitorInfoView.getInt32(20, true)
@@ -292,4 +293,20 @@ export function getWorkArea(hwnd: Hwnd): Rect | null {
 	const right = monitorInfoView.getInt32(28, true)
 	const bottom = monitorInfoView.getInt32(32, true)
 	return { x: left, y: top, w: right - left, h: bottom - top }
+}
+
+const CAPS: WmCapabilities = { manage: true, focus: true, highlight: dwmapiLib !== null }
+
+export const win32WindowManager: WindowManager = {
+	caps: CAPS,
+	listTerminalWindows,
+	getForegroundWindow,
+	setForegroundWindow,
+	getWindowRect,
+	setWindowRect,
+	setWindowRectAsync,
+	moveWindow,
+	moveWindows,
+	getWorkArea,
+	setWindowHighlight,
 }

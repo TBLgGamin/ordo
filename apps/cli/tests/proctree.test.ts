@@ -4,7 +4,7 @@ import {
 	deepestWhitelisted,
 	type ProcInfo,
 	snapshotProcesses,
-} from "../src/platform/proctree"
+} from "../src/platform/procScan"
 
 describe("snapshotProcesses", () => {
 	test("returns a non-empty snapshot that includes this process", () => {

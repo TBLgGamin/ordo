@@ -1,2 +1,2 @@
 #!/bin/sh
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/pre-commit.ps1
+exec bun run precommit

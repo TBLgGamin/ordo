@@ -1,31 +1,31 @@
 import { ANIM_FRAME_MS } from "../core/config"
 import {
+	type Direction,
 	getWindowRect,
-	type Hwnd,
 	moveWindow,
 	moveWindows,
 	type Rect,
 	setWindowRect,
-} from "../platform/win32"
-import type { Direction } from "../platform/wt"
+	type WindowHandle,
+} from "../platform"
 
 const SETTLE_CORRECTION_MS = 150
 
 export interface AnimatorOps {
-	getRect(hwnd: Hwnd): Rect | null
-	setRect(hwnd: Hwnd, rect: Rect): void
-	move(hwnd: Hwnd, x: number, y: number): void
-	moveBatch(items: Array<{ hwnd: Hwnd; x: number; y: number }>): void
+	getRect(handle: WindowHandle): Rect | null
+	setRect(handle: WindowHandle, rect: Rect): void
+	move(handle: WindowHandle, x: number, y: number): void
+	moveBatch(items: Array<{ handle: WindowHandle; x: number; y: number }>): void
 	now(): number
 }
 
 const defaultOps: AnimatorOps = {
 	getRect: getWindowRect,
-	setRect: (hwnd, rect) => {
-		setWindowRect(hwnd, rect)
+	setRect: (handle, rect) => {
+		setWindowRect(handle, rect)
 	},
-	move: (hwnd, x, y) => {
-		moveWindow(hwnd, x, y)
+	move: (handle, x, y) => {
+		moveWindow(handle, x, y)
 	},
 	moveBatch: (items) => {
 		moveWindows(items)
@@ -34,7 +34,7 @@ const defaultOps: AnimatorOps = {
 }
 
 interface Tween {
-	hwnd: Hwnd
+	handle: WindowHandle
 	from: Rect
 	to: Rect
 }
@@ -62,7 +62,7 @@ export class ZoneAnimator {
 
 	animate(
 		dir: Direction,
-		items: Array<{ hwnd: Hwnd; to: Rect }>,
+		items: Array<{ handle: WindowHandle; to: Rect }>,
 		animMs: number,
 		ops: AnimatorOps = defaultOps,
 	): void {
@@ -70,24 +70,24 @@ export class ZoneAnimator {
 		this.anims.delete(dir)
 
 		if (animMs <= 0 || items.length === 0) {
-			for (const it of items) ops.setRect(it.hwnd, it.to)
+			for (const it of items) ops.setRect(it.handle, it.to)
 			return
 		}
 
 		const tweens: Tween[] = []
 		for (const it of items) {
-			const from = ops.getRect(it.hwnd)
+			const from = ops.getRect(it.handle)
 			if (!from) {
-				ops.setRect(it.hwnd, it.to)
+				ops.setRect(it.handle, it.to)
 				continue
 			}
-			tweens.push({ hwnd: it.hwnd, from, to: it.to })
+			tweens.push({ handle: it.handle, from, to: it.to })
 		}
 		if (tweens.length === 0) return
 
 		for (const tw of tweens) {
 			if (Math.round(tw.to.w) !== tw.from.w || Math.round(tw.to.h) !== tw.from.h) {
-				ops.setRect(tw.hwnd, { x: tw.from.x, y: tw.from.y, w: tw.to.w, h: tw.to.h })
+				ops.setRect(tw.handle, { x: tw.from.x, y: tw.from.y, w: tw.to.w, h: tw.to.h })
 			}
 		}
 
@@ -101,9 +101,9 @@ export class ZoneAnimator {
 			if (correction !== undefined) clearTimeout(correction)
 		}
 
-		const applyMove = (positions: Array<{ hwnd: Hwnd; x: number; y: number }>) => {
+		const applyMove = (positions: Array<{ handle: WindowHandle; x: number; y: number }>) => {
 			if (positions.length >= 2) ops.moveBatch(positions)
-			else for (const p of positions) ops.move(p.hwnd, p.x, p.y)
+			else for (const p of positions) ops.move(p.handle, p.x, p.y)
 		}
 
 		const schedule = () => {
@@ -117,17 +117,17 @@ export class ZoneAnimator {
 			if (t < 1) {
 				applyMove(
 					tweens.map((tw) => ({
-						hwnd: tw.hwnd,
+						handle: tw.handle,
 						x: tw.from.x + (tw.to.x - tw.from.x) * e,
 						y: tw.from.y + (tw.to.y - tw.from.y) * e,
 					})),
 				)
 				schedule()
 			} else {
-				for (const tw of tweens) ops.setRect(tw.hwnd, tw.to)
+				for (const tw of tweens) ops.setRect(tw.handle, tw.to)
 				correction = setTimeout(() => {
 					if (this.anims.get(dir) === cancel) {
-						for (const tw of tweens) ops.setRect(tw.hwnd, tw.to)
+						for (const tw of tweens) ops.setRect(tw.handle, tw.to)
 						this.anims.delete(dir)
 					}
 				}, SETTLE_CORRECTION_MS)

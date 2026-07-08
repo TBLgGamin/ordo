@@ -6,7 +6,7 @@ import {
 	buildTabArgs,
 	buildWindowArgs,
 	isDirection,
-} from "../src/platform/wt"
+} from "../src/platform/win32/wt"
 
 describe("isDirection", () => {
 	test("accepts the four tiling directions", () => {

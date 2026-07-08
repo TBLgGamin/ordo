@@ -8,7 +8,7 @@ const root = realpathSync.native(fileURLToPath(new URL(".", import.meta.url)))
 
 export default defineConfig({
 	root,
-	site: "https://ordo.example.com",
+	site: "https://ordo.wena.one",
 	integrations: [vue()],
 	vite: {
 		plugins: [tailwindcss()],

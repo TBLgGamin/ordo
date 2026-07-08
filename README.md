@@ -2,15 +2,16 @@
 
 > Your terminal, in formation.
 
-ordo is a tiling terminal multiplexer for Windows. It opens real Windows
-Terminal windows around a command center, keeps shells alive in a background
-daemon, and gives AI agent panes a shared MCP radio so they can find each other,
-send messages, read output, broadcast, interrupt, and spawn more panes.
+ordo is a tiling terminal multiplexer for Windows, macOS, and Linux. It opens
+real terminal windows around a command center, keeps shells alive in a
+background daemon, and gives AI agent panes a shared MCP radio so they can find
+each other, send messages, read output, broadcast, interrupt, and spawn more
+panes.
 
 Website and docs: [ordo.wena.one](https://ordo.wena.one).
 
 <p align="center">
-  <img src="apps/web/public/product/hero-formation.png" alt="Ordo tiling several Windows Terminal panes around a command center" width="100%">
+  <img src="apps/web/public/product/hero-formation.png" alt="Ordo tiling several terminal panes around a command center" width="100%">
 </p>
 
 ## Why ordo exists
@@ -39,29 +40,41 @@ script the whole thing from one place.
 
 ## Requirements
 
-- Windows 11
-- Windows Terminal (`wt.exe`)
-- Git
-- Bun `1.3.14` or newer
+All platforms need Git and Bun `1.3.14` or newer. The installer checks these and
+installs or updates Bun when needed.
 
-The installer checks these and installs or updates Bun when needed.
+- **Windows 11** with **Windows Terminal** (`wt.exe`).
+- **macOS 13+** with any supported terminal. Terminal.app and iTerm2 tile with no
+  extra setup; kitty, WezTerm, Alacritty, and Ghostty need Accessibility
+  permission (System Settings → Privacy & Security → Accessibility) to be tiled.
+- **Linux** on an **X11** session with a terminal emulator (kitty, WezTerm,
+  Alacritty, GNOME Terminal, Konsole, xterm, …). On **Wayland**, ordo cannot
+  position other windows, so panes open untiled; run under XWayland to tile.
+
+ordo auto-detects your terminal; set `ORDO_TERMINAL` to force a specific one.
 
 ## Install
 
-Run this in PowerShell:
+**Windows** — run this in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.ps1 | iex
 ```
 
+**macOS / Linux** — run this in your shell:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.sh | bash
+```
+
 Then open ordo:
 
-```powershell
+```sh
 ordo
 ```
 
-The launcher opens in a new Windows Terminal window. From there you can start a
-fresh session, restore saved work, and spawn panes.
+The launcher opens in a new terminal window. From there you can start a fresh
+session, restore saved work, and spawn panes.
 
 To remove ordo later:
 
@@ -69,44 +82,49 @@ To remove ordo later:
 irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/uninstall.ps1 | iex
 ```
 
-Use `-KeepData` if you want to keep saved sessions and local model files.
+```sh
+curl -fsSL https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/uninstall.sh | bash
+```
+
+Pass `-KeepData` (Windows) or `--keep-data` (macOS/Linux) to keep saved sessions
+and local model files.
 
 ## Daily use
 
 Start a fresh room:
 
-```powershell
+```sh
 ordo new
 ```
 
 Open agent panes:
 
-```powershell
+```sh
 ordo spawn --agent claude --name legatus
 ordo spawn --agent codex --name optio
 ```
 
 Send work to a pane:
 
-```powershell
+```sh
 ordo send optio "inspect apps/cli/src/core and report back"
 ```
 
 Read a pane without focusing its window:
 
-```powershell
+```sh
 ordo read optio --lines 80
 ```
 
 Tell the whole room something:
 
-```powershell
+```sh
 ordo broadcast "wrap up and leave a short status"
 ```
 
 Restore saved work:
 
-```powershell
+```sh
 ordo sessions
 ordo restore centurion-optio
 ```
@@ -160,7 +178,7 @@ update status, and spawn new panes.
 The launcher shows saved sessions, panes, and daemon activity.
 
 <p align="center">
-  <img src="apps/web/public/product/launcher-cli.png" alt="Ordo launcher TUI in Windows Terminal" width="100%">
+  <img src="apps/web/public/product/launcher-cli.png" alt="Ordo launcher TUI" width="100%">
 </p>
 
 ### Agent communication
@@ -189,6 +207,7 @@ Common environment variables:
 | -------------------------------- | ------------------------------------------------------------- |
 | `ORDO_SESSION`                   | Select the active session for CLI commands.                   |
 | `ORDO_SHELL`                     | Override the shell launched inside agent panes.               |
+| `ORDO_TERMINAL`                  | Force a specific terminal emulator instead of auto-detecting. |
 | `ORDO_RESTORE_PROGRAMS`          | Override which foreground programs are relaunched on restore. |
 | `ORDO_SCROLLBACK`                | Set captured scrollback lines for restore.                    |
 | `ORDO_CENTER_W`, `ORDO_CENTER_H` | Tune the center window size as a monitor fraction.            |
@@ -198,13 +217,16 @@ Common environment variables:
 | `ORDO_TITLE_MODEL`               | Use a different local or Hugging Face GGUF title model.       |
 | `ORDO_MODELS_DIR`                | Change where local models are cached.                         |
 
-More detail lives in the docs: [ordo.wena.one/docs](https://ordo.wena.one/docs).
+Session data lives under `%APPDATA%\ordo` (Windows),
+`~/Library/Application Support/ordo` (macOS), and `$XDG_DATA_HOME/ordo` or
+`~/.local/share/ordo` (Linux). More detail lives in the docs:
+[ordo.wena.one/docs](https://ordo.wena.one/docs).
 
 ## Development
 
 Clone and install dependencies:
 
-```powershell
+```sh
 git clone https://github.com/TBLgGamin/ordo.git
 cd ordo
 bun install
@@ -212,25 +234,25 @@ bun install
 
 Run the CLI in development mode:
 
-```powershell
+```sh
 bun run dev
 ```
 
 Run checks:
 
-```powershell
+```sh
 bun run ci
 ```
 
 Set up the optional pre-commit hook:
 
-```powershell
+```sh
 bun run setup:hooks
 ```
 
 Run the website:
 
-```powershell
+```sh
 bun run --cwd apps/web dev
 ```
 
@@ -238,13 +260,16 @@ Repository layout:
 
 ```text
 apps/
-  cli/      ordo CLI, daemon, MCP server, Windows Terminal integration
+  cli/      ordo CLI, daemon, MCP server, per-OS terminal + window integration
   web/      Astro website
 scripts/
-  install.ps1
-  uninstall.ps1
+  install.ps1     install.sh
+  uninstall.ps1   uninstall.sh
   verify.ps1
 ```
+
+Platform-specific code lives under `apps/cli/src/platform/{win32,darwin,linux}`
+behind a shared interface in `apps/cli/src/platform/types.ts`.
 
 ## Contributing
 
