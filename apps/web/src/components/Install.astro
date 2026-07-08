@@ -1,15 +1,13 @@
 ---
 import { Button } from "@/components/ui/button"
-import CopyCommand from "@/components/CopyCommand.vue"
+import OsTabs from "@/components/OsTabs.vue"
 import SectionHeading from "@/components/SectionHeading.astro"
-
-const installCommand = "irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.ps1 | iex"
 
 const steps = [
 	{
 		step: "01",
 		title: "Run the installer",
-		description: "One PowerShell command fetches ordo and checks its prerequisites for you.",
+		description: "One command fetches ordo and checks its prerequisites for you.",
 	},
 	{
 		step: "02",
@@ -28,12 +26,12 @@ const steps = [
 	<div class="relative mx-auto flex w-full max-w-3xl flex-col items-center gap-12 text-center">
 		<SectionHeading eyebrow="install" title="Deployed in under a minute." class="flex max-w-none flex-col items-center">
 			<p>
-				Requires Windows 11 with Windows Terminal. The installer tells you if anything is
-				missing.
+				Works on Windows, macOS, and Linux. ordo detects your terminal and tells you if
+				anything is missing.
 			</p>
 		</SectionHeading>
 		<div class="w-full max-w-2xl">
-			<CopyCommand client:load command={installCommand} prompt="PS>" />
+			<OsTabs client:load />
 		</div>
 		<div class="grid w-full gap-10 text-left sm:grid-cols-3">
 			{steps.map((item) => (

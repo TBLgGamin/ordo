@@ -48,21 +48,6 @@ export function parseArgValue(argv: readonly string[], flag: string): string | u
  */
 export const WT_WINDOW = process.env.ORDO_WT_WINDOW ?? "0"
 
-let powershellExeCache: string | undefined
-
-/** Memoized PowerShell executable — resolved lazily so quick CLI commands skip the probe. */
-export function powershellExe(): string {
-	if (powershellExeCache === undefined) {
-		powershellExeCache = Bun.which("pwsh") ? "pwsh" : "powershell"
-	}
-	return powershellExeCache
-}
-
-/** The shell each agent drives inside its pane. Override with ORDO_SHELL. */
-export function agentShell(): string {
-	return process.env.ORDO_SHELL ?? powershellExe()
-}
-
 /**
  * Programs the agent will re-launch on restore (tmux-resurrect style): if one of
  * these was the foreground program when the session was saved, the restored pane
@@ -153,18 +138,23 @@ export const TILE_GAP = numEnv("ORDO_GAP", 2, 0, 64)
  * tile at least this wide so they never overlap; the center width is clamped so
  * the side columns stay ≥ this. Override with ORDO_MIN_W.
  */
-export const MIN_WIN_W = numEnv("ORDO_MIN_W", 480, 200, 2000)
+export const MIN_WIN_W = numEnv("ORDO_MIN_W", process.platform === "win32" ? 480 : 200, 100, 2000)
+
+// macOS positions windows by shelling out to osascript (~100ms/call), which is far
+// too slow for 60Hz tweening or a 120ms follow poll, so its defaults are calmer:
+// no animation and a slower, cheaper watcher. Windows/Linux keep the snappy values.
+const IS_DARWIN = process.platform === "darwin"
 
 /** Slide/resize animation duration in ms when tiles rearrange. 0 = instant. */
-export const ANIM_MS = numEnv("ORDO_ANIM_MS", 180, 0, 2000)
+export const ANIM_MS = numEnv("ORDO_ANIM_MS", IS_DARWIN ? 0 : 180, 0, 2000)
 
 export const ANIM_FRAME_MS = numEnv("ORDO_ANIM_FRAME_MS", 16, 4, 50)
 
 export const RESIZE_DEBOUNCE_MS = numEnv("ORDO_RESIZE_DEBOUNCE", 100, 0, 1000)
 
-export const CENTER_IDLE_POLL_MS = numEnv("ORDO_CENTER_IDLE_POLL", 120, 30, 500)
+export const CENTER_IDLE_POLL_MS = numEnv("ORDO_CENTER_IDLE_POLL", IS_DARWIN ? 500 : 120, 30, 2000)
 
-export const CENTER_FOLLOW_MS = numEnv("ORDO_CENTER_FOLLOW", 16, 4, 60)
+export const CENTER_FOLLOW_MS = numEnv("ORDO_CENTER_FOLLOW", IS_DARWIN ? 150 : 16, 4, 500)
 
 export const CENTER_SETTLE_MS = numEnv("ORDO_CENTER_SETTLE", 150, 30, 1000)
 

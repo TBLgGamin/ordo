@@ -1,5 +1,4 @@
-import type { Rect } from "../platform/win32"
-import type { Direction } from "../platform/wt"
+import type { Direction, Rect } from "../platform"
 
 const MIN_SLOT_H = 60
 

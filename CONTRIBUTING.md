@@ -2,8 +2,9 @@
 
 Thanks for taking the time to improve ordo.
 
-ordo is Windows-first and built around Windows Terminal, Bun, Astro, and a local
-daemon. Changes should keep that workflow fast, local, and understandable.
+ordo is cross-platform (Windows, macOS, Linux), built around Bun, Astro, a local
+daemon, and a per-OS terminal + window-management layer. Changes should keep that
+workflow fast, local, and understandable.
 
 ## Before you start
 
@@ -16,14 +17,13 @@ daemon. Changes should keep that workflow fast, local, and understandable.
 
 Requirements:
 
-- Windows 11
-- Windows Terminal
-- Git
-- Bun `1.3.14` or newer
+- Git and Bun `1.3.14` or newer.
+- Windows 11 + Windows Terminal, **or** macOS 13+ with a terminal, **or** Linux
+  on an X11 session with a terminal emulator.
 
 Clone and install:
 
-```powershell
+```sh
 git clone https://github.com/TBLgGamin/ordo.git
 cd ordo
 bun install
@@ -31,19 +31,19 @@ bun install
 
 Run the CLI in development mode:
 
-```powershell
+```sh
 bun run dev
 ```
 
 Run the website:
 
-```powershell
+```sh
 bun run --cwd apps/web dev
 ```
 
 Set up the optional pre-commit hook:
 
-```powershell
+```sh
 bun run setup:hooks
 ```
 
@@ -53,7 +53,7 @@ The hook runs lint and TypeScript checks before each commit.
 
 Before opening a pull request, run:
 
-```powershell
+```sh
 bun run ci
 ```
 
@@ -61,7 +61,7 @@ If a check fails and you cannot fix it, mention that clearly in the PR.
 
 For local cleanup while developing, you can run:
 
-```powershell
+```sh
 bun run verify
 ```
 
@@ -72,13 +72,17 @@ write to the worktree.
 
 ```text
 apps/
-  cli/      CLI, daemon, MCP server, Windows Terminal integration
+  cli/      CLI, daemon, MCP server, per-OS terminal + window integration
   web/      Astro website
 scripts/
-  install.ps1
-  uninstall.ps1
+  install.ps1     install.sh
+  uninstall.ps1   uninstall.sh
   verify.ps1
 ```
+
+Platform-specific code lives under `apps/cli/src/platform/`: `types.ts` defines
+the shared `WindowManager` / `TerminalBackend` interfaces, and `win32/`,
+`darwin/`, and `linux/` implement them. `index.ts` selects a backend at runtime.
 
 ## Code style
 
@@ -86,7 +90,9 @@ scripts/
 - Prefer small, direct functions over new abstractions.
 - Keep user-facing copy plain and specific.
 - Do not add a dependency unless it removes real complexity.
-- Keep Windows behavior in mind. ordo depends on Windows Terminal.
+- Keep all three platforms in mind. New OS-specific behavior belongs in
+  `apps/cli/src/platform/<os>/` behind the shared interface, never inline; keep
+  the Windows path unchanged unless a change is deliberately cross-platform.
 
 ## Pull requests
 
@@ -102,8 +108,9 @@ A good PR includes:
 
 Please include:
 
-- Windows version.
-- Windows Terminal version if relevant.
+- Your OS and version.
+- Your terminal emulator (and, on Linux, your window manager / compositor and
+  whether you are on X11 or Wayland).
 - Bun version from `bun --version`.
 - The command you ran.
 - What happened.

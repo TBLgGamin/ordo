@@ -8,6 +8,10 @@ interface Props {
 
 const { title, description } = Astro.props
 
+const site = Astro.site ?? new URL("https://ordo.wena.one")
+const ogImage = new URL("/social-preview.png", site).href
+const canonical = new URL(Astro.url.pathname, site).href
+
 const themeInitScript = `(function(){try{var t=localStorage.getItem("ordo-theme");var d=t==="dark"||((t==="system"||!t)&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);}catch(e){}})();`
 ---
 
@@ -19,9 +23,16 @@ const themeInitScript = `(function(){try{var t=localStorage.getItem("ordo-theme"
 		<meta name="color-scheme" content="light dark" />
 		<meta name="theme-color" content="#f1f1f2" />
 		<meta name="description" content={description} />
+		<link rel="canonical" href={canonical} />
 		<meta property="og:title" content={title} />
 		<meta property="og:description" content={description} />
 		<meta property="og:type" content="website" />
+		<meta property="og:url" content={canonical} />
+		<meta property="og:image" content={ogImage} />
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={title} />
+		<meta name="twitter:description" content={description} />
+		<meta name="twitter:image" content={ogImage} />
 		<link rel="icon" href="/favicon.ico" sizes="any" />
 		<link rel="icon" type="image/png" sizes="512x512" href="/favicon.png" />
 		<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />

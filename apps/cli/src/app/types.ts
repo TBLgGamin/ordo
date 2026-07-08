@@ -1,4 +1,4 @@
-import type { Direction } from "../platform/wt"
+import type { Direction } from "../platform"
 
 /** Window title each satellite gets — its (unique) pane name, used to find its HWND. */
 export function satelliteTitle(id: string): string {

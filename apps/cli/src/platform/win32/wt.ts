@@ -21,13 +21,15 @@
 
 import { lstatSync } from "node:fs"
 import { join } from "node:path"
-import { WT_WINDOW } from "../core/config"
-import { OrdoError } from "../core/errors"
+import { WT_WINDOW } from "../../core/config"
+import { OrdoError } from "../../core/errors"
+import type { Direction, SpawnWindowOptions, TerminalBackend, WindowHandle } from "../types"
+
+export type { Direction, SpawnWindowOptions } from "../types"
+export { isDirection } from "../types"
 
 const WT_NOT_FOUND =
 	"Windows Terminal (wt.exe) not found — install it from the Microsoft Store or run: winget install Microsoft.WindowsTerminal"
-
-export type Direction = "left" | "right" | "up" | "down"
 
 /**
  * Resolve the wt.exe to spawn.
@@ -88,10 +90,6 @@ const DIRECTION_PLANS: Record<Direction, SplitPlan> = {
 	// -H focuses a new pane below; down needs no swap, up swaps over.
 	down: { axis: "-H" },
 	up: { axis: "-H", swap: "up" },
-}
-
-export function isDirection(value: string): value is Direction {
-	return value === "left" || value === "right" || value === "up" || value === "down"
 }
 
 /**
@@ -186,18 +184,6 @@ export function buildTabArgs(opts: SpawnTabOptions, target: string[] = windowTar
 	return args
 }
 
-export interface SpawnWindowOptions {
-	commandline: string[]
-	cwd?: string
-	title?: string
-	/** Tab/title-bar color as #RGB or #RRGGBB. */
-	tabColor?: string
-	/** Screen position in pixels. */
-	pos?: { x: number; y: number }
-	/** Window size in character cells. */
-	size?: { cols: number; rows: number }
-}
-
 /**
  * Open a brand-new window running `commandline`, optionally positioned/sized so
  * callers can "layer" satellite windows around the central one.
@@ -217,8 +203,9 @@ export function buildWindowArgs(opts: SpawnWindowOptions): string[] {
 	return args
 }
 
-export async function spawnWindow(opts: SpawnWindowOptions): Promise<void> {
+export async function spawnWindow(opts: SpawnWindowOptions): Promise<{ handle?: WindowHandle }> {
 	await runWt(buildWindowArgs(opts))
+	return {}
 }
 
 /**
@@ -250,4 +237,11 @@ export async function openSelfWindow(
 /** Build the wt.exe argv to move keyboard focus in the target window. */
 export function buildFocusArgs(direction: Direction, target: string[] = windowTarget()): string[] {
 	return [...target, "move-focus", direction]
+}
+
+export const wtTerminal: TerminalBackend = {
+	id: "windows-terminal",
+	minWindowWidth: 480,
+	spawnWindow,
+	openSelfWindow,
 }

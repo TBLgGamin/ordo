@@ -1,7 +1,6 @@
 import { existsSync, rmSync } from "node:fs"
 import type { Socket, Subprocess } from "bun"
 import {
-	agentShell,
 	RESTORE_PROGRAMS,
 	SCROLLBACK_LINES,
 	SEED_TIMEOUT_MS,
@@ -16,19 +15,14 @@ import type {
 } from "../core/daemonProtocol"
 import { encode, type LineDecoder } from "../core/protocol"
 import { scrollbackPath } from "../core/session"
-import { createPaneJob, type PaneJob } from "../platform/job"
+import { createPaneJob, type PaneJob } from "../platform/procKill"
+import { defaultShell, paneShellLaunch } from "../platform/shell"
 import { CaptureWriter } from "./capture"
 import { reconstructScreen, textFromVt } from "./replay"
 import type { SocketWriter } from "./socketWriter"
 import { CommandLineTracker, TitleStripper } from "./vt"
 
 const seedEncoder = new TextEncoder()
-
-export const isPwsh = (shell: string) => /pwsh|powershell/i.test(shell)
-
-/** pwsh prompt wrapper that reports the current location via OSC 9;9 each prompt. */
-export const PROMPT_CWD_REPORT =
-	"$o=$function:prompt; function global:prompt { try { [Console]::Write([char]27+']9;9;'+$PWD.ProviderPath+[char]7) } catch {}; & $o }"
 
 export interface SockState {
 	decoder: LineDecoder<Hello | ControlRequest | AttachClientMsg>
@@ -89,7 +83,7 @@ export class Pane {
 		private readonly onEvent: (e: ControlEvent) => void,
 		private readonly onExit: (purged: boolean) => void,
 	) {
-		const shell = agentShell()
+		const shell = defaultShell()
 		const cwd = opts.cwd
 		const capture = scrollbackPath(session, pane)
 		this.state = { pane, cwd, color: opts.color, live: true }
@@ -147,11 +141,11 @@ export class Pane {
 			},
 		})
 
-		const args = isPwsh(shell) ? ["-NoLogo", "-NoExit", "-Command", PROMPT_CWD_REPORT] : []
-		this.child = Bun.spawn([shell, ...args], {
+		const launch = paneShellLaunch(shell)
+		this.child = Bun.spawn([shell, ...launch.args], {
 			terminal: this.term,
 			cwd: cwd && existsSync(cwd) ? cwd : undefined,
-			env: { ...process.env, ORDO_SESSION: session, ORDO_PANE: pane },
+			env: { ...process.env, ...launch.env, ORDO_SESSION: session, ORDO_PANE: pane },
 			onExit: () => this.dispose(),
 		})
 		this.state.pid = this.child.pid

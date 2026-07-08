@@ -1,10 +1,8 @@
 ---
 import { Button } from "@/components/ui/button"
-import CopyCommand from "@/components/CopyCommand.vue"
 import DotField from "@/components/DotField.vue"
+import OsTabs from "@/components/OsTabs.vue"
 import ProductShot from "@/components/ProductShot.astro"
-
-const installCommand = "irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.ps1 | iex"
 ---
 
 <section id="top" class="relative flex min-h-[calc(100dvh-4rem)] items-center overflow-hidden bg-hero">
@@ -63,12 +61,13 @@ const installCommand = "irm https://raw.githubusercontent.com/TBLgGamin/ordo/mas
 				your terminal
 			</h1>
 			<p class="mt-7 max-w-md text-lg leading-relaxed text-stone">
-				ordo is a tiling terminal multiplexer for Windows. It arranges your shells around you
-				in real windows and keeps every one alive in a daemon that outlives them. When a pane
-				runs an AI agent, ordo wires it in over MCP so your agents can work as a team.
+				ordo is a tiling terminal multiplexer for Windows, macOS, and Linux. It arranges your
+				shells around you in real windows and keeps every one alive in a daemon that outlives
+				them. When a pane runs an AI agent, ordo wires it in over MCP so your agents can work
+				as a team.
 			</p>
 			<div class="mt-9 max-w-lg">
-				<CopyCommand client:load command={installCommand} prompt="PS>" />
+				<OsTabs client:load />
 			</div>
 			<div class="mt-6 flex flex-wrap items-center gap-3">
 				<Button size="lg" as="a" href="#install" class="rounded-lg px-5">Get started</Button>
@@ -78,7 +77,7 @@ const installCommand = "irm https://raw.githubusercontent.com/TBLgGamin/ordo/mas
 				</Button>
 			</div>
 			<p class="mt-8 text-xs tracking-wide text-stone">
-				free &amp; open source &middot; one command install &middot; no cloud required &middot; Windows Terminal &middot; Bun
+				free &amp; open source &middot; one command install &middot; no cloud required &middot; any terminal &middot; Bun
 			</p>
 		</div>
 	</div>

@@ -50,7 +50,7 @@ const sessionCommands = [
 		title: "Open the launcher",
 		summary: "The plain command opens the ordo command center.",
 		syntax: ["ordo"],
-		does: "Starts ordo in a fresh Windows Terminal window and shows the launcher.",
+		does: "Starts ordo in a fresh terminal window and shows the launcher.",
 		means: "Use it when you want to see the room before acting. You can start a session, restore one, and watch panes from the center.",
 		examples: [{ command: "ordo", text: "Open the launcher and choose what to do next." }],
 	},
@@ -124,7 +124,7 @@ const paneCommands = [
 		],
 		examples: [
 			{ command: "ordo spawn --agent claude --name legatus", text: "Open a Claude pane named legatus." },
-			{ command: "ordo spawn --cwd X:\\Github\\ordo", text: "Open a shell pane in the repo." },
+			{ command: "ordo spawn --cwd ~/code/ordo", text: "Open a shell pane in the repo." },
 		],
 	},
 	{
@@ -204,7 +204,7 @@ const otherCommands = [
 		title: "Print completion script",
 		summary: "Outputs a shell completion script.",
 		syntax: ["ordo completion [powershell|pwsh|bash|zsh]"],
-		does: "Prints the completion script for the requested shell. PowerShell is the default.",
+		does: "Prints the completion script for the requested shell. The default follows your platform: PowerShell on Windows, otherwise your login shell (bash or zsh).",
 		means: "Use it once during setup if you want Tab to complete commands, sessions, panes and agent names.",
 		examples: [
 			{ command: "ordo completion powershell", text: "Print the PowerShell completer." },
@@ -246,7 +246,7 @@ const internalCommands = [
 		id: "cmd-in-window",
 		command: "ordo __in-window",
 		title: "Window entry point",
-		summary: "Runs ordo inside the Windows Terminal window it opened.",
+		summary: "Runs ordo inside the terminal window it opened.",
 		syntax: ["ordo __in-window", "ordo __in-window new", "ordo __in-window restore <id>"],
 		does: "Receives the launch intent after the public command has opened a terminal window.",
 		means: "This is window plumbing. Use ordo, ordo new, and ordo restore instead.",

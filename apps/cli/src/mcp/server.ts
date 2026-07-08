@@ -4,6 +4,9 @@ import { z } from "zod"
 import { colorName } from "../core/colors"
 import { loadSession } from "../core/session"
 import { DaemonClient } from "../daemon/daemonClient"
+import { runShellSyntaxName } from "../platform/shell"
+
+const SHELL_SYNTAX = runShellSyntaxName()
 
 const NO_IDENTITY =
 	"This MCP server only works inside an ordo pane (ORDO_SESSION / ORDO_PANE are not set)."
@@ -329,10 +332,9 @@ export async function runMcpServer(): Promise<void> {
 		"run_command",
 		{
 			title: "Run a shell command",
-			description:
-				"Run a one-shot command in the session (PowerShell) and get back its stdout, stderr, and exit code. It runs headless — no window, no TTY, no peer sees it — so use it for quick facts like `git status` or a test run, not for interactive or long-lived programs (use spawn_pane for those). Output is capped and the command is killed after the timeout.",
+			description: `Run a one-shot command in the session (${SHELL_SYNTAX}) and get back its stdout, stderr, and exit code. It runs headless — no window, no TTY, no peer sees it — so use it for quick facts like \`git status\` or a test run, not for interactive or long-lived programs (use spawn_pane for those). Output is capped and the command is killed after the timeout.`,
 			inputSchema: {
-				command: z.string().min(1).describe("The command line to run (PowerShell syntax)."),
+				command: z.string().min(1).describe(`The command line to run (${SHELL_SYNTAX} syntax).`),
 				cwd: z.string().optional().describe("Working directory for the command."),
 				timeout_seconds: z.number().int().min(1).max(300).default(30),
 			},

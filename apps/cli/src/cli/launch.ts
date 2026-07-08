@@ -1,7 +1,7 @@
 import { BUN_EXE, ENTRY_PATH, PROJECT_DIR, parseArgValue } from "../core/config"
 import { OrdoError } from "../core/errors"
 import { sessionExists } from "../core/session"
-import { openSelfWindow } from "../platform/wt"
+import { openSelfWindow } from "../platform"
 
 export interface PaneSeed {
 	agent?: string

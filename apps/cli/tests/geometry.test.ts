@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { clampToWork, slotRects, zoneRect } from "../src/app/geometry"
-import type { Rect } from "../src/platform/win32"
+import type { Rect } from "../src/platform/types"
 
 const work: Rect = { x: 0, y: 0, w: 1600, h: 1200 }
 const center: Rect = { x: 400, y: 300, w: 800, h: 600 }

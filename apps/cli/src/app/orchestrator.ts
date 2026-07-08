@@ -30,8 +30,15 @@ import {
 	saveSession,
 } from "../core/session"
 import { DaemonClient } from "../daemon/daemonClient"
-import { type Hwnd, listTerminalWindows, type Rect, type WindowInfo } from "../platform/win32"
-import { type Direction, spawnWindow } from "../platform/wt"
+import {
+	type Direction,
+	listTerminalWindows,
+	type Rect,
+	spawnWindow,
+	type WindowHandle,
+	type WindowInfo,
+	wmCaps,
+} from "../platform"
 import { LayoutManager } from "./layout"
 import { reconnectDecision } from "./reconnect"
 import { gatherActivity } from "./title"
@@ -160,7 +167,11 @@ export class Orchestrator {
 		// (openSession → setCenterRect). Default-sizing here first would desync the
 		// geometry the restored panes are tiled against.
 		try {
-			this.layout.captureCenter()
+			if (wmCaps().manage) {
+				this.layout.captureCenter()
+			} else {
+				this.log("window manager unavailable — panes will open untiled", "warn")
+			}
 			this.layout.gap = TILE_GAP
 			this.layout.animMs = ANIM_MS
 		} catch (err) {
@@ -692,11 +703,12 @@ export class Orchestrator {
 			)
 
 			// Spawn near the final spot: the saved rect when restoring, else the zone.
+			const canManage = wmCaps().manage
 			const origin = spec.rect
 				? { x: spec.rect.x, y: spec.rect.y }
 				: this.layout.zoneOrigin(direction)
 			const wantTitle = satelliteTitle(id)
-			await spawnWindow({
+			const spawnRes = await spawnWindow({
 				commandline: this.clientCommandline(id),
 				cwd,
 				title: wantTitle,
@@ -705,23 +717,33 @@ export class Orchestrator {
 				size: { cols: SPAWN_COLS, rows: SPAWN_ROWS },
 			})
 
-			// The window appears asynchronously; poll for its HWND by title with a
-			// short backoff up to a ~5s deadline (so concurrent restores don't serialize).
-			let hwnd: Hwnd | null = null
+			// The daemon owns the shell regardless of tiling. When the window manager
+			// can't move other windows (Wayland, missing libX11), the pane still works
+			// as a standalone window — we just skip the find + tile step.
+			if (!canManage) {
+				this.log(`spawned window "${id}" (untiled)`)
+				this.persist()
+				return
+			}
+
+			// Prefer a handle the backend returned synchronously (macOS); otherwise the
+			// window appears asynchronously, so poll for it by title with a short backoff
+			// up to a ~5s deadline (so concurrent restores don't serialize).
+			let handle: WindowHandle | null = spawnRes.handle ?? null
 			const deadline = performance.now() + WINDOW_FIND_TIMEOUT_MS
-			for (let i = 0; performance.now() < deadline; i++) {
-				hwnd =
-					this.terminalWindows(WINDOW_ENUM_TTL_MS).find((w) => w.title === wantTitle)?.hwnd ?? null
-				if (hwnd) break
+			for (let i = 0; !handle && performance.now() < deadline; i++) {
+				handle =
+					this.terminalWindows(WINDOW_ENUM_TTL_MS).find((w) => w.title === wantTitle)?.handle ?? null
+				if (handle) break
 				await sleep(Math.min(WINDOW_POLL_STEP_MS * (i + 1), WINDOW_POLL_MAX_MS))
 			}
-			if (!hwnd) throw new Error("window did not appear (title not found)")
+			if (!handle) throw new Error("window did not appear (title not found)")
 
 			if (spec.rect) {
-				this.layout.addRestored(id, hwnd, direction, spec.rect)
+				this.layout.addRestored(id, handle, direction, spec.rect)
 				this.log(`restored ${direction} window "${id}"`)
 			} else {
-				this.layout.add(id, hwnd, direction)
+				this.layout.add(id, handle, direction)
 				this.log(`spawned ${direction} window "${id}" → tiled`)
 			}
 			this.persist()

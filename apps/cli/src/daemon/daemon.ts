@@ -18,7 +18,7 @@
 import { existsSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Socket, TCPSocketListener } from "bun"
-import { CLIENT_OVERFLOW_BYTES, powershellExe, RESTORE_PROGRAMS } from "../core/config"
+import { CLIENT_OVERFLOW_BYTES, RESTORE_PROGRAMS } from "../core/config"
 import { daemonInfoPath, readDaemonInfo } from "../core/daemonInfo"
 import type {
 	AttachClientMsg,
@@ -40,7 +40,8 @@ import { errMessage } from "../core/errors"
 import { encode, LineDecoder } from "../core/protocol"
 import { ordoDir, scrollbackPath } from "../core/session"
 import { acquireSingletonLock, type SingletonLock, singletonLockSupported } from "../platform/lock"
-import { buildProcessIndex, deepestWhitelisted, snapshotProcesses } from "../platform/proctree"
+import { buildProcessIndex, deepestWhitelisted, snapshotProcesses } from "../platform/procScan"
+import { runShellArgv } from "../platform/shell"
 import { ALL_WAITABLE_EVENTS, clampInt, matchEventWaiter, matchWaiter } from "./messages"
 import { Pane, type SockState } from "./pane"
 import { SocketWriter } from "./socketWriter"
@@ -696,16 +697,13 @@ class Daemon {
 		const ms = clampInt(req.timeoutMs, RUN_DEFAULT_MS, RUN_MIN_MS, RUN_MAX_MS)
 		let proc: import("bun").Subprocess<"ignore", "pipe", "pipe">
 		try {
-			proc = Bun.spawn(
-				[powershellExe(), "-NoProfile", "-NonInteractive", "-Command", req.command],
-				{
-					cwd: req.cwd && existsSync(req.cwd) ? req.cwd : undefined,
-					stdin: "ignore",
-					stdout: "pipe",
-					stderr: "pipe",
-					env: process.env,
-				},
-			)
+			proc = Bun.spawn(runShellArgv(req.command), {
+				cwd: req.cwd && existsSync(req.cwd) ? req.cwd : undefined,
+				stdin: "ignore",
+				stdout: "pipe",
+				stderr: "pipe",
+				env: process.env,
+			})
 		} catch (err) {
 			reply({ id: req.id, ok: false, error: errMessage(err) })
 			return

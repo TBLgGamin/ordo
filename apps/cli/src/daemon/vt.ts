@@ -28,6 +28,18 @@ type State = "normal" | "esc" | "osc" | "csi"
 const EMPTY = new Uint8Array(0)
 const oscDecoder = new TextDecoder()
 
+function fileUriToPath(uri: string): string {
+	if (!uri.startsWith("file://")) return ""
+	const rest = uri.slice("file://".length)
+	const slash = rest.indexOf("/")
+	const path = slash >= 0 ? rest.slice(slash) : rest
+	try {
+		return decodeURIComponent(path)
+	} catch {
+		return path
+	}
+}
+
 function concatOwned(segs: Uint8Array[]): Uint8Array {
 	if (segs.length === 0) return EMPTY
 	let total = 0
@@ -200,6 +212,14 @@ export class TitleStripper {
 			const payload = this.oscPayload()
 			if (payload.startsWith("9;9;")) {
 				const path = payload.slice("9;9;".length).replace(/^"|"$/g, "")
+				if (path) this.onCwd(path)
+			}
+		}
+		// OSC 7;file://host/path = the POSIX "set cwd" convention. Report it too.
+		if (ps === 7 && this.onCwd) {
+			const payload = this.oscPayload()
+			if (payload.startsWith("7;")) {
+				const path = fileUriToPath(payload.slice("7;".length))
 				if (path) this.onCwd(path)
 			}
 		}

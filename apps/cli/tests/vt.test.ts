@@ -133,6 +133,33 @@ describe("TitleStripper startup-clear suppression", () => {
 	})
 })
 
+describe("TitleStripper cwd reporting", () => {
+	test("reports and preserves an OSC 9;9 cwd", () => {
+		const seen: string[] = []
+		const s = new TitleStripper({ onCwd: (p) => seen.push(p) })
+		const out = new TextDecoder().decode(s.push(enc("\x1b]9;9;C:\\Users\\a\x07x")))
+		expect(seen).toEqual(["C:\\Users\\a"])
+		expect(out).toContain("\x1b]9;9;C:\\Users\\a")
+		expect(out.endsWith("x")).toBe(true)
+	})
+
+	test("reports and preserves an OSC 7 file:// cwd", () => {
+		const seen: string[] = []
+		const s = new TitleStripper({ onCwd: (p) => seen.push(p) })
+		const out = new TextDecoder().decode(s.push(enc("\x1b]7;file://host/home/user\x07y")))
+		expect(seen).toEqual(["/home/user"])
+		expect(out).toContain("\x1b]7;file://host/home/user")
+		expect(out.endsWith("y")).toBe(true)
+	})
+
+	test("percent-decodes an OSC 7 path with spaces", () => {
+		const seen: string[] = []
+		const s = new TitleStripper({ onCwd: (p) => seen.push(p) })
+		s.push(enc("\x1b]7;file:///home/my%20proj\x07"))
+		expect(seen).toEqual(["/home/my proj"])
+	})
+})
+
 describe("CommandLineTracker", () => {
 	const feed = (t: CommandLineTracker, s: string) => t.feed(new TextEncoder().encode(s))
 

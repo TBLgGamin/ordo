@@ -8,9 +8,13 @@ on:
   pull_request:
 
 jobs:
-  verify:
-    name: Verify
-    runs-on: windows-latest
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
       - name: Checkout
@@ -24,5 +28,56 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run checks
-        run: bun run ci
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run --cwd apps/cli typecheck
+
+      - name: Test
+        run: bun run --cwd apps/cli test
+
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build web
+        run: bun run --cwd apps/web build
+
+  linux-window-smoke:
+    name: Linux X11 window smoke
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install X11 test tools
+        run: sudo apt-get update && sudo apt-get install -y xvfb xterm openbox
+
+      - name: Run X11 window smoke under Xvfb
+        run: |
+          xvfb-run -a --server-args="-screen 0 1600x1000x24" bash -c '
+            openbox &
+            sleep 2
+            bun apps/cli/scripts/x11-smoke.ts
+          '
