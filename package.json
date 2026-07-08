@@ -15,7 +15,10 @@
 		"lint": "biome lint .",
 		"format": "biome format --write .",
 		"check": "biome check --write .",
-		"verify": "biome check --write . && bun run --cwd apps/cli typecheck && bun run --cwd apps/cli test"
+		"precommit": "bun run lint && bun run --cwd apps/cli typecheck",
+		"ci": "bun run lint && bun run --cwd apps/cli typecheck && bun run --cwd apps/cli test && bun run --cwd apps/web build",
+		"verify": "biome check --write . && bun run --cwd apps/cli typecheck && bun run --cwd apps/cli test",
+		"setup:hooks": "powershell -ExecutionPolicy Bypass -File scripts/setup-hooks.ps1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.1"
