@@ -27,6 +27,8 @@ function linuxBaseDir(): string {
 }
 
 export function ordoBaseDir(): string {
+	const override = process.env.ORDO_DATA_DIR
+	if (override && override.trim() !== "") return override
 	if (process.platform === "win32") return windowsBaseDir()
 	if (process.platform === "darwin") return darwinBaseDir()
 	return linuxBaseDir()

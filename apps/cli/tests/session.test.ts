@@ -15,19 +15,22 @@ import {
 	sessionsDir,
 } from "../src/core/session"
 
-// session.ts reads process.env.APPDATA at call time, so point it at a temp dir.
+// paths.ts honors ORDO_DATA_DIR above all per-OS logic, so point it at a temp dir
+// to isolate the data directory identically on every platform.
 let tmp: string
-let prevAppData: string | undefined
+let base: string
+let prevDataDir: string | undefined
 
 beforeAll(() => {
-	prevAppData = process.env.APPDATA
+	prevDataDir = process.env.ORDO_DATA_DIR
 	tmp = mkdtempSync(join(tmpdir(), "ordo-test-"))
-	process.env.APPDATA = tmp
+	base = join(tmp, "ordo")
+	process.env.ORDO_DATA_DIR = base
 })
 
 afterAll(() => {
-	if (prevAppData === undefined) delete process.env.APPDATA
-	else process.env.APPDATA = prevAppData
+	if (prevDataDir === undefined) delete process.env.ORDO_DATA_DIR
+	else process.env.ORDO_DATA_DIR = prevDataDir
 	rmSync(tmp, { recursive: true, force: true })
 })
 

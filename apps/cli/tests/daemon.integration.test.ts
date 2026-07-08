@@ -37,21 +37,23 @@ async function waitFor(
 }
 
 let tmp: string
-let prevAppData: string | undefined
+let dataDir: string
+let prevDataDir: string | undefined
 let daemonProc: Subprocess
 let dc: DaemonClient
 let port = 0
 let token = ""
 
 beforeAll(async () => {
-	prevAppData = process.env.APPDATA
+	prevDataDir = process.env.ORDO_DATA_DIR
 	tmp = mkdtempSync(join(tmpdir(), "ordo-daemon-"))
-	process.env.APPDATA = tmp
+	dataDir = join(tmp, "ordo")
+	process.env.ORDO_DATA_DIR = dataDir
 	// Spawn the daemon directly (test-controlled lifecycle, not Start-Process).
 	daemonProc = Bun.spawn([BUN_EXE, DAEMON_PATH], {
 		env: {
 			...process.env,
-			APPDATA: tmp,
+			ORDO_DATA_DIR: dataDir,
 			ORDO_RESTORE_PROGRAMS: "whoami cmd node python claude codex kilo kilocode gemini opencode",
 		},
 		stdin: "ignore",
@@ -77,8 +79,8 @@ afterAll(async () => {
 	try {
 		await daemonProc.exited
 	} catch {}
-	if (prevAppData === undefined) delete process.env.APPDATA
-	else process.env.APPDATA = prevAppData
+	if (prevDataDir === undefined) delete process.env.ORDO_DATA_DIR
+	else process.env.ORDO_DATA_DIR = prevDataDir
 	for (let i = 0; i < 10; i++) {
 		try {
 			rmSync(tmp, { recursive: true, force: true })
@@ -234,7 +236,7 @@ describe("daemon", () => {
 		const infoPath = join(tmp, "ordo", "daemon.json")
 		const before = JSON.parse(await Bun.file(infoPath).text())
 		const second = Bun.spawn([BUN_EXE, DAEMON_PATH], {
-			env: { ...process.env, APPDATA: tmp },
+			env: { ...process.env, ORDO_DATA_DIR: dataDir },
 			stdin: "ignore",
 			stdout: "ignore",
 			stderr: "ignore",

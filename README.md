@@ -216,6 +216,7 @@ Common environment variables:
 | `ORDO_TITLE`                     | Set to `0` to disable local title generation.                 |
 | `ORDO_TITLE_MODEL`               | Use a different local or Hugging Face GGUF title model.       |
 | `ORDO_MODELS_DIR`                | Change where local models are cached.                         |
+| `ORDO_DATA_DIR`                  | Override the data directory (sessions, daemon, models root).  |
 
 Session data lives under `%APPDATA%\ordo` (Windows),
 `~/Library/Application Support/ordo` (macOS), and `$XDG_DATA_HOME/ordo` or

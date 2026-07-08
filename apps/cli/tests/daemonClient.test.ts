@@ -9,17 +9,17 @@ import { encode, LineDecoder } from "../src/core/protocol"
 import { DaemonClient, killSessionPanes } from "../src/daemon/daemonClient"
 
 let tmp: string
-let prevAppData: string | undefined
+let prevDataDir: string | undefined
 
 beforeEach(() => {
-	prevAppData = process.env.APPDATA
+	prevDataDir = process.env.ORDO_DATA_DIR
 	tmp = mkdtempSync(join(tmpdir(), "ordo-dc-"))
-	process.env.APPDATA = tmp
+	process.env.ORDO_DATA_DIR = join(tmp, "ordo")
 })
 
 afterEach(() => {
-	if (prevAppData === undefined) delete process.env.APPDATA
-	else process.env.APPDATA = prevAppData
+	if (prevDataDir === undefined) delete process.env.ORDO_DATA_DIR
+	else process.env.ORDO_DATA_DIR = prevDataDir
 	rmSync(tmp, { recursive: true, force: true })
 })
 

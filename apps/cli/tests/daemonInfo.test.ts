@@ -4,16 +4,16 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 let dir: string
-const origAppData = process.env.APPDATA
+const origDataDir = process.env.ORDO_DATA_DIR
 
 beforeAll(() => {
 	dir = mkdtempSync(join(tmpdir(), "ordo-daemoninfo-"))
-	process.env.APPDATA = dir
+	process.env.ORDO_DATA_DIR = join(dir, "ordo")
 })
 
 afterAll(() => {
-	if (origAppData === undefined) delete process.env.APPDATA
-	else process.env.APPDATA = origAppData
+	if (origDataDir === undefined) delete process.env.ORDO_DATA_DIR
+	else process.env.ORDO_DATA_DIR = origDataDir
 	try {
 		rmSync(dir, { recursive: true, force: true })
 	} catch {}

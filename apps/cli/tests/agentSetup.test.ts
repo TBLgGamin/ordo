@@ -139,13 +139,17 @@ describe("ensureAgentIntegrations (detection-gated agents)", () => {
 		expect(parsed["amp.mcpServers"].ordo.command).toBeString()
 	})
 
-	test("goose writes a YAML extensions block under appData", () => {
+	test("goose writes a YAML extensions block", () => {
 		const appData = join(base, "AppData", "Roaming")
 		const which = (e: string) => (e === "goose" ? "C:\\bin\\goose.exe" : null)
 		expect(byTool(ensureAgentIntegrations(base, { which, appData }), "goose")?.action).toBe(
 			"created",
 		)
-		const yaml = readFileSync(join(appData, "Block", "goose", "config", "config.yaml"), "utf8")
+		const goosePath =
+			process.platform === "win32"
+				? join(appData, "Block", "goose", "config", "config.yaml")
+				: join(base, ".config", "goose", "config.yaml")
+		const yaml = readFileSync(goosePath, "utf8")
 		expect(yaml).toContain("extensions:")
 		expect(yaml).toContain("ordo:")
 		expect(yaml).toContain("type: stdio")
