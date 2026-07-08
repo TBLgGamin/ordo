@@ -1,56 +1,97 @@
 @import "tailwindcss";
-@import "@fontsource/titillium-web/400.css";
-@import "@fontsource/titillium-web/600.css";
-@import "@fontsource/titillium-web/700.css";
-@import "@fontsource/titillium-web/900.css";
+@import "@fontsource-variable/outfit";
 
-:root {
-	--background: #0b0e14;
-	--foreground: #e7e9ee;
-	--card: #10131b;
-	--card-foreground: #e7e9ee;
-	--popover: #10131b;
-	--popover-foreground: #e7e9ee;
-	--primary: #d6c9f9;
-	--primary-foreground: #0b0e14;
-	--secondary: #171a23;
-	--secondary-foreground: #e7e9ee;
-	--muted: #171a23;
-	--muted-foreground: #8f95a3;
-	--accent: #171520;
-	--accent-foreground: #d6c9f9;
-	--destructive: #f2b8b5;
-	--border: #23262b;
-	--input: #23262b;
-	--ring: #d6c9f9;
-	--radius: 0.625rem;
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+	--color-hero: #f1f1f2;
+	--color-pine: #18181b;
+	--color-pine-deep: #09090b;
+	--color-ink: #18181b;
+	--color-arch: #d3c7f6;
+	--color-arch-ink: #4a3f7a;
+	--color-demo: #e4e4e7;
+	--color-stone: #52525b;
+	--color-dot: #8e8e99;
 }
 
 @theme inline {
-	--font-sans: "Titillium Web", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-sans: "Outfit Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 	--font-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
-	--color-background: var(--background);
-	--color-foreground: var(--foreground);
-	--color-card: var(--card);
-	--color-card-foreground: var(--card-foreground);
-	--color-popover: var(--popover);
-	--color-popover-foreground: var(--popover-foreground);
-	--color-primary: var(--primary);
-	--color-primary-foreground: var(--primary-foreground);
-	--color-secondary: var(--secondary);
-	--color-secondary-foreground: var(--secondary-foreground);
-	--color-muted: var(--muted);
-	--color-muted-foreground: var(--muted-foreground);
-	--color-accent: var(--accent);
-	--color-accent-foreground: var(--accent-foreground);
-	--color-destructive: var(--destructive);
-	--color-border: var(--border);
-	--color-input: var(--input);
 	--color-ring: var(--ring);
-	--radius-sm: calc(var(--radius) - 4px);
-	--radius-md: calc(var(--radius) - 2px);
+	--color-input: var(--input);
+	--color-border: var(--border);
+	--color-destructive: var(--destructive);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-accent: var(--accent);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-muted: var(--muted);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-secondary: var(--secondary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary: var(--primary);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-popover: var(--popover);
+	--color-card-foreground: var(--card-foreground);
+	--color-card: var(--card);
+	--color-foreground: var(--foreground);
+	--color-background: var(--background);
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) + 4px);
+	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-2xl: calc(var(--radius) * 1.8);
+	--radius-3xl: calc(var(--radius) * 2.2);
+	--radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+	--background: oklch(1 0 0);
+	--foreground: oklch(0.145 0 0);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.145 0 0);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.145 0 0);
+	--primary: oklch(0.205 0 0);
+	--primary-foreground: oklch(0.985 0 0);
+	--secondary: oklch(0.97 0 0);
+	--secondary-foreground: oklch(0.205 0 0);
+	--muted: oklch(0.97 0 0);
+	--muted-foreground: oklch(0.556 0 0);
+	--accent: oklch(0.97 0 0);
+	--accent-foreground: oklch(0.205 0 0);
+	--destructive: oklch(0.577 0.245 27.325);
+	--border: oklch(0.922 0 0);
+	--input: oklch(0.922 0 0);
+	--ring: oklch(0.708 0 0);
+	--radius: 0.625rem;
+}
+
+.dark {
+	--background: oklch(0.145 0 0);
+	--foreground: oklch(0.985 0 0);
+	--card: oklch(0.205 0 0);
+	--card-foreground: oklch(0.985 0 0);
+	--popover: oklch(0.205 0 0);
+	--popover-foreground: oklch(0.985 0 0);
+	--primary: oklch(0.922 0 0);
+	--primary-foreground: oklch(0.205 0 0);
+	--secondary: oklch(0.269 0 0);
+	--secondary-foreground: oklch(0.985 0 0);
+	--muted: oklch(0.269 0 0);
+	--muted-foreground: oklch(0.708 0 0);
+	--accent: oklch(0.269 0 0);
+	--accent-foreground: oklch(0.985 0 0);
+	--destructive: oklch(0.704 0.191 22.216);
+	--border: oklch(1 0 0 / 10%);
+	--input: oklch(1 0 0 / 15%);
+	--ring: oklch(0.556 0 0);
+
+	--color-hero: #101013;
+	--color-ink: #f4f4f5;
+	--color-stone: #a1a1aa;
+	--color-demo: #27272a;
+	--color-dot: #a1a1aa;
 }
 
 @layer base {
@@ -58,14 +99,80 @@
 		@apply border-border outline-ring/50;
 	}
 	html {
-		color-scheme: dark;
-		scroll-behavior: auto;
+		@apply font-sans;
+		scroll-behavior: smooth;
 	}
 	body {
-		@apply bg-background text-foreground font-sans antialiased;
+		@apply bg-hero text-foreground antialiased;
 	}
 	::selection {
-		background: var(--primary);
-		color: var(--primary-foreground);
+		background: var(--color-arch);
+		color: var(--color-pine);
+	}
+}
+
+@keyframes logo-marquee {
+	from {
+		transform: translateX(-50%);
+	}
+	to {
+		transform: translateX(0);
+	}
+}
+
+.logo-marquee {
+	animation: logo-marquee 40s linear infinite;
+}
+
+.logo-marquee:hover {
+	animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.logo-marquee {
+		animation: none;
+		width: 100%;
+		justify-content: center;
+	}
+	.logo-marquee ul {
+		flex-wrap: wrap;
+		justify-content: center;
+		padding-right: 0;
+	}
+	.logo-marquee ul[aria-hidden="true"] {
+		display: none;
+	}
+}
+
+.bento-tile {
+	position: absolute;
+	z-index: 0;
+	overflow: hidden;
+	will-change: top, left, width, height;
+	transition:
+		top 0.6s cubic-bezier(0.76, 0, 0.24, 1),
+		left 0.6s cubic-bezier(0.76, 0, 0.24, 1),
+		width 0.6s cubic-bezier(0.76, 0, 0.24, 1),
+		height 0.6s cubic-bezier(0.76, 0, 0.24, 1),
+		z-index 0s linear 0.6s;
+}
+
+.bento-tile:hover {
+	top: 0 !important;
+	left: 0 !important;
+	width: 100% !important;
+	height: 100% !important;
+	z-index: 10;
+	transition:
+		top 0.6s cubic-bezier(0.76, 0, 0.24, 1),
+		left 0.6s cubic-bezier(0.76, 0, 0.24, 1),
+		width 0.6s cubic-bezier(0.76, 0, 0.24, 1),
+		height 0.6s cubic-bezier(0.76, 0, 0.24, 1),
+		z-index 0s linear 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bento-tile {
+		transition: none;
 	}
 }

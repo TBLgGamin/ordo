@@ -1,0 +1,397 @@
+---
+import Header from "@/components/Header.astro"
+import Footer from "@/components/Footer.astro"
+import CommandDoc from "@/components/CommandDoc.astro"
+import Layout from "@/layouts/Layout.astro"
+
+const sessionOptions = [{ flag: "--session <id>", text: "Select a specific live or saved session." }]
+
+const nav = [
+	{
+		title: "Basics",
+		items: [{ href: "#session-selection", label: "Session selection" }],
+	},
+	{
+		title: "Sessions",
+		items: [
+			{ href: "#cmd-ordo", label: "ordo" },
+			{ href: "#cmd-new", label: "new" },
+			{ href: "#cmd-restore", label: "restore" },
+			{ href: "#cmd-sessions", label: "sessions" },
+			{ href: "#cmd-delete", label: "delete" },
+		],
+	},
+	{
+		title: "Panes",
+		items: [
+			{ href: "#cmd-agents", label: "agents" },
+			{ href: "#cmd-spawn", label: "spawn" },
+			{ href: "#cmd-send", label: "send" },
+			{ href: "#cmd-read", label: "read" },
+			{ href: "#cmd-broadcast", label: "broadcast" },
+			{ href: "#cmd-status", label: "status" },
+			{ href: "#cmd-interrupt", label: "interrupt" },
+		],
+	},
+	{
+		title: "Other",
+		items: [
+			{ href: "#cmd-completion", label: "completion" },
+			{ href: "#cmd-help", label: "help" },
+			{ href: "#internal", label: "internal commands" },
+		],
+	},
+]
+
+const sessionCommands = [
+	{
+		id: "cmd-ordo",
+		command: "ordo",
+		title: "Open the launcher",
+		summary: "The plain command opens the ordo command center.",
+		syntax: ["ordo"],
+		does: "Starts ordo in a fresh Windows Terminal window and shows the launcher.",
+		means: "Use it when you want to see the room before acting. You can start a session, restore one, and watch panes from the center.",
+		examples: [{ command: "ordo", text: "Open the launcher and choose what to do next." }],
+	},
+	{
+		id: "cmd-new",
+		command: "ordo new",
+		title: "Start a new session",
+		summary: "Creates a clean session without going through the launcher picker.",
+		syntax: ["ordo new"],
+		does: "Opens a fresh ordo session immediately.",
+		means: "Use it when you want a new room now. It is the fastest manual way to start from zero.",
+		examples: [{ command: "ordo new", text: "Create a fresh session and open its command center." }],
+	},
+	{
+		id: "cmd-restore",
+		command: "ordo restore <id>",
+		title: "Restore a session",
+		summary: "Reopens a saved session by id.",
+		syntax: ["ordo restore <id>"],
+		does: "Checks that the session exists, opens ordo, and restores that session into view.",
+		means: "Use it to return to named work. If the daemon is still alive, panes reattach. After a reboot, ordo rebuilds from saved state.",
+		examples: [{ command: "ordo restore centurion-optio", text: "Open the saved session named centurion-optio." }],
+	},
+	{
+		id: "cmd-sessions",
+		command: "ordo sessions",
+		title: "List sessions",
+		summary: "Prints the saved sessions ordo knows about.",
+		syntax: ["ordo sessions"],
+		does: "Lists session ids in your terminal.",
+		means: "Use it before restore or delete when you do not remember the exact name.",
+		examples: [{ command: "ordo sessions", text: "Show saved session ids." }],
+	},
+	{
+		id: "cmd-delete",
+		command: "ordo delete <id>",
+		title: "Delete a session",
+		summary: "Removes a saved session and stops its panes.",
+		syntax: ["ordo delete <id>"],
+		does: "Asks the daemon to kill panes for the session, then deletes the saved session record.",
+		means: "Use it to clear old rooms from the launcher. After this, restore will not find that id.",
+		examples: [{ command: "ordo delete centurion-optio", text: "Remove that saved session." }],
+	},
+]
+
+const paneCommands = [
+	{
+		id: "cmd-agents",
+		command: "ordo agents",
+		title: "List panes",
+		summary: "Shows the panes in the selected session.",
+		syntax: ["ordo agents [--session <id>]"],
+		does: "Prints pane name, live/dead state, foreground program and working directory.",
+		means: "Use it to learn the call signs in the room. Those names are what you send to, read from, and interrupt.",
+		options: sessionOptions,
+		examples: [{ command: "ordo agents", text: "Show panes for the active or only live session." }],
+	},
+	{
+		id: "cmd-spawn",
+		command: "ordo spawn",
+		title: "Open a pane",
+		summary: "Creates a new pane, optionally running a known agent CLI.",
+		syntax: ["ordo spawn [--agent <agent>] [--cwd <path>] [--name <pane>] [--session <id>]"],
+		does: "Requests a pane from the daemon. It can name the pane, choose the working directory, and launch an agent program.",
+		means: "Use it to add another worker to the room. A named agent pane is easy to address later and gets ordo MCP tools automatically.",
+		options: [
+			{ flag: "--agent <agent>", text: "Start a supported agent program such as claude, codex, gemini or opencode." },
+			{ flag: "--cwd <path>", text: "Start the pane in this working directory." },
+			{ flag: "--name <pane>", text: "Give the pane a stable call sign." },
+			...sessionOptions,
+		],
+		examples: [
+			{ command: "ordo spawn --agent claude --name legatus", text: "Open a Claude pane named legatus." },
+			{ command: "ordo spawn --cwd X:\\Github\\ordo", text: "Open a shell pane in the repo." },
+		],
+	},
+	{
+		id: "cmd-send",
+		command: "ordo send",
+		title: "Send a message",
+		summary: "Sends text to a pane by name.",
+		syntax: ["ordo send <pane> <text...> [--session <id>]"],
+		does: "Resolves the target pane and delivers the message. If an agent is waiting through MCP, it receives the message there. Otherwise ordo types into the pane and presses Enter.",
+		means: "Use it to delegate from anywhere. With the new no-session flow, a command like this can make a room, open or find legatus, and send the message.",
+		options: sessionOptions,
+		examples: [
+			{ command: 'ordo send legatus "hi"', text: "Start or find legatus and send a short message." },
+			{
+				command: 'ordo send optio "inspect apps/cli/src/core and report back"',
+				text: "Give optio a concrete task.",
+			},
+		],
+	},
+	{
+		id: "cmd-read",
+		command: "ordo read",
+		title: "Read a pane",
+		summary: "Prints recent output from a pane.",
+		syntax: ["ordo read <pane> [--lines N] [--session <id>]"],
+		does: "Reads the target pane's captured terminal output and prints it to your shell.",
+		means: "Use it to check work without focusing the window. It is useful from scripts, CI, or another agent pane.",
+		options: [
+			{ flag: "--lines N", text: "Limit output to the most recent N lines." },
+			...sessionOptions,
+		],
+		examples: [{ command: "ordo read legatus --lines 80", text: "Read the last 80 lines from legatus." }],
+	},
+	{
+		id: "cmd-broadcast",
+		command: "ordo broadcast",
+		title: "Broadcast a message",
+		summary: "Sends the same text to every other pane in the session.",
+		syntax: ["ordo broadcast <text...> [--session <id>]"],
+		does: "Delivers one message to all peer panes.",
+		means: "Use it for room-wide instructions: wrap up, pause, summarize, switch branch, or stop touching a file.",
+		options: sessionOptions,
+		examples: [{ command: 'ordo broadcast "wrap up and leave a short status"', text: "Ask every pane to finish cleanly." }],
+	},
+	{
+		id: "cmd-status",
+		command: "ordo status",
+		title: "Read or set pane status",
+		summary: "Shows statuses, or sets your own status from inside a pane.",
+		syntax: ["ordo status [--session <id>]", "ordo status <text...> [--session <id>]"],
+		does: "With no text, prints live pane statuses. With text, sets the current pane's status when ORDO_PANE is present.",
+		means: "Use it as the room notice board. Agents can say what they are doing, and you can read the whole room in one command.",
+		options: sessionOptions,
+		examples: [
+			{ command: "ordo status", text: "Show current pane statuses." },
+			{ command: 'ordo status "reviewing docs"', text: "Set your pane status from inside an ordo pane." },
+		],
+		notes: ["Setting a status is for panes. A normal shell can read statuses, but it is not a pane unless ordo launched it."],
+	},
+	{
+		id: "cmd-interrupt",
+		command: "ordo interrupt",
+		title: "Interrupt a pane",
+		summary: "Sends Ctrl-C to the target pane.",
+		syntax: ["ordo interrupt <pane> [--session <id>]"],
+		does: "Resolves the target pane and sends an interrupt signal into it.",
+		means: "Use it when a pane is running the wrong task, hanging, or needs to stop before it changes more files.",
+		options: sessionOptions,
+		examples: [{ command: "ordo interrupt legatus", text: "Stop the current foreground work in legatus." }],
+	},
+]
+
+const otherCommands = [
+	{
+		id: "cmd-completion",
+		command: "ordo completion",
+		title: "Print completion script",
+		summary: "Outputs a shell completion script.",
+		syntax: ["ordo completion [powershell|pwsh|bash|zsh]"],
+		does: "Prints the completion script for the requested shell. PowerShell is the default.",
+		means: "Use it once during setup if you want Tab to complete commands, sessions, panes and agent names.",
+		examples: [
+			{ command: "ordo completion powershell", text: "Print the PowerShell completer." },
+			{ command: "ordo completion zsh", text: "Print the zsh completer." },
+		],
+	},
+	{
+		id: "cmd-help",
+		command: "ordo help",
+		title: "Show help",
+		summary: "Prints the short command summary.",
+		syntax: ["ordo help", "ordo -h", "ordo --help"],
+		does: "Writes the built-in usage text to your terminal.",
+		means: "Use it when you need the compact command list without opening this page.",
+		examples: [{ command: "ordo --help", text: "Show help using the long flag." }],
+	},
+]
+
+const internalCommands = [
+	{
+		id: "cmd-mcp",
+		command: "ordo mcp",
+		title: "MCP server",
+		summary: "Starts the MCP server used by agent panes.",
+		syntax: ["ordo mcp"],
+		does: "Runs the tool server that lets agents discover peers, send messages, read panes, broadcast, interrupt and spawn.",
+		means: "You normally do not type this. ordo installs it into supported agent configs so the tools appear when an agent starts.",
+	},
+	{
+		id: "cmd-complete-internal",
+		command: "ordo __complete",
+		title: "Completion backend",
+		summary: "Returns completion candidates to shell completion scripts.",
+		syntax: ["ordo __complete <words...>"],
+		does: "Looks at the current command words and prints matching subcommands, panes, sessions or agent names.",
+		means: "Your shell calls this after Tab. It is not a user workflow.",
+	},
+	{
+		id: "cmd-in-window",
+		command: "ordo __in-window",
+		title: "Window entry point",
+		summary: "Runs ordo inside the Windows Terminal window it opened.",
+		syntax: ["ordo __in-window", "ordo __in-window new", "ordo __in-window restore <id>"],
+		does: "Receives the launch intent after the public command has opened a terminal window.",
+		means: "This is window plumbing. Use ordo, ordo new, and ordo restore instead.",
+	},
+]
+
+const agentNames = [
+	"claude",
+	"codex",
+	"kilo",
+	"kilocode",
+	"gemini",
+	"opencode",
+	"copilot",
+	"qwen",
+	"cursor-agent",
+	"goose",
+	"amp",
+	"droid",
+]
+---
+
+<Layout
+	title="ordo docs | command reference"
+	description="A clean reference for every ordo command, with syntax, options, examples and plain explanations."
+>
+	<Header />
+	<main class="bg-hero">
+		<div class="mx-auto grid w-full max-w-[88rem] gap-10 px-6 py-10 sm:px-8 lg:grid-cols-[16rem_minmax(0,1fr)] lg:py-14">
+			<aside class="hidden lg:block">
+				<nav class="sticky top-24 max-h-[calc(100dvh-7rem)] overflow-y-auto pr-6 text-sm">
+					{nav.map((group) => (
+						<div class="mb-8">
+							<p class="text-xs font-medium uppercase tracking-[0.25em] text-stone">{group.title}</p>
+							<ul class="mt-3 space-y-2">
+								{group.items.map((item) => (
+									<li>
+										<a href={item.href} class="text-stone transition-colors hover:text-ink">
+											{item.label}
+										</a>
+									</li>
+								))}
+							</ul>
+						</div>
+					))}
+				</nav>
+			</aside>
+
+			<div class="min-w-0 max-w-full overflow-hidden">
+				<section id="session-selection" class="scroll-mt-24 border-b border-ink/10 pb-12">
+					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">routing</p>
+					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+						How pane commands choose a session
+					</h2>
+					<p class="mt-5 max-w-3xl text-base leading-relaxed text-stone">
+						Commands that work with panes need a room. ordo takes the most explicit answer
+						first, then falls back to what is already running. If nothing is running, it can
+						create the room before running the command.
+					</p>
+					<div class="mt-8 grid gap-6 md:grid-cols-3">
+						<div>
+							<p class="font-mono text-sm text-arch-ink dark:text-arch">--session &lt;id&gt;</p>
+							<p class="mt-2 text-sm leading-relaxed text-stone">
+								Use the session you named. Best for scripts and repeatable commands.
+							</p>
+						</div>
+						<div>
+							<p class="font-mono text-sm text-arch-ink dark:text-arch">ORDO_SESSION</p>
+							<p class="mt-2 text-sm leading-relaxed text-stone">
+								Inside an ordo pane, the session is already known.
+							</p>
+						</div>
+						<div>
+							<p class="font-mono text-sm text-arch-ink dark:text-arch">one live room</p>
+							<p class="mt-2 text-sm leading-relaxed text-stone">
+								If only one session is live, ordo uses it. If none is live, it starts one.
+							</p>
+						</div>
+					</div>
+				</section>
+
+				<section class="py-12">
+					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">sessions</p>
+					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+						Rooms and saved work
+					</h2>
+					<div class="mt-10">
+						{sessionCommands.map((item) => <CommandDoc item={item} />)}
+					</div>
+				</section>
+
+				<section class="py-12">
+					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">panes</p>
+					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+						Panes, agents and messages
+					</h2>
+					<div class="mt-10">
+						{paneCommands.map((item) => <CommandDoc item={item} />)}
+					</div>
+				</section>
+
+				<section id="agents" class="scroll-mt-24 border-t border-ink/10 py-12">
+					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">agents</p>
+					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+						Supported --agent names
+					</h2>
+					<p class="mt-5 max-w-3xl text-base leading-relaxed text-stone">
+						Pass one of these to <span class="font-mono text-ink">ordo spawn --agent</span>.
+						ordo starts it in a pane and gives it the MCP tools automatically.
+					</p>
+					<div class="mt-8 flex flex-wrap gap-2">
+						{agentNames.map((agent) => (
+							<span class="rounded-md border border-ink/10 px-3 py-1.5 font-mono text-sm text-ink">
+								{agent}
+							</span>
+						))}
+					</div>
+				</section>
+
+				<section class="py-12">
+					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">other</p>
+					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+						Setup and help
+					</h2>
+					<div class="mt-10">
+						{otherCommands.map((item) => <CommandDoc item={item} />)}
+					</div>
+				</section>
+
+				<section id="internal" class="scroll-mt-24 py-12">
+					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">internals</p>
+					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+						Real commands, not normal commands
+					</h2>
+					<p class="mt-5 max-w-3xl text-base leading-relaxed text-stone">
+						These exist in the CLI because ordo needs them for agents, completion and
+						window launch. You may see them in configs or process lists, but the public
+						commands are what you type.
+					</p>
+					<div class="mt-10">
+						{internalCommands.map((item) => <CommandDoc item={item} />)}
+					</div>
+				</section>
+			</div>
+		</div>
+	</main>
+	<Footer />
+</Layout>

@@ -12,17 +12,17 @@ import Footer from "@/components/Footer.astro"
 ---
 
 <Layout
-	title="ordo — a terminal multiplexer for orchestrating AI agents"
-	description="ordo tiles your AI coding agents around your terminal in real windows, wires them together over MCP, and keeps every shell alive in a daemon that survives closed windows and reboots. Windows Terminal, one-command install."
+	title="ordo | a tiling terminal multiplexer for Windows"
+	description="ordo tiles your shells around you in real windows and keeps every one alive in a daemon that survives closed windows and reboots. Run an AI agent in a pane and it gets wired in over MCP automatically. Windows Terminal, one-command install."
 >
 	<Header />
 	<main>
 		<Hero />
-		<AgentStrip />
 		<Features />
-		<Orchestration />
 		<Sessions />
 		<Cli />
+		<AgentStrip />
+		<Orchestration />
 		<Install />
 	</main>
 	<Footer />

@@ -7,23 +7,29 @@ interface Props {
 }
 
 const { title, description } = Astro.props
+
+const themeInitScript = `(function(){try{var t=localStorage.getItem("ordo-theme");var d=t==="dark"||((t==="system"||!t)&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);}catch(e){}})();`
 ---
 
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="color-scheme" content="dark" />
-		<meta name="theme-color" content="#0b0e14" />
+		<meta name="color-scheme" content="light dark" />
+		<meta name="theme-color" content="#f1f1f2" />
 		<meta name="description" content={description} />
 		<meta property="og:title" content={title} />
 		<meta property="og:description" content={description} />
 		<meta property="og:type" content="website" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="icon" href="/favicon.ico" sizes="any" />
+		<link rel="icon" type="image/png" sizes="512x512" href="/favicon.png" />
+		<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+		<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 		<title>{title}</title>
+		<script is:inline set:html={themeInitScript} />
 	</head>
-	<body class="min-h-dvh bg-background font-sans text-foreground antialiased">
+	<body class="min-h-dvh bg-hero font-sans text-ink antialiased">
 		<slot />
 	</body>
 </html>

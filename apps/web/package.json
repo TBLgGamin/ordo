@@ -9,7 +9,7 @@
 	},
 	"dependencies": {
 		"@astrojs/vue": "^5.0.0",
-		"@fontsource/titillium-web": "^5.2.0",
+		"@fontsource-variable/outfit": "^5.2.8",
 		"astro": "^5.0.0",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
@@ -20,6 +20,8 @@
 		"vue": "^3.5.0"
 	},
 	"devDependencies": {
-		"@tailwindcss/vite": "^4.1.0"
+		"@lobehub/icons-static-svg": "^1.91.0",
+		"@tailwindcss/vite": "^4.1.0",
+		"simple-icons": "^16.25.0"
 	}
 }

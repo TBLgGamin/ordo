@@ -1,62 +1,31 @@
 ---
-import { Badge } from "@/components/ui/badge"
 import SectionHeading from "@/components/SectionHeading.astro"
-import TerminalWindow from "@/components/TerminalWindow.astro"
-import MediaPlaceholder from "@/components/MediaPlaceholder.astro"
-
-const tools = [
-	"list_agents",
-	"send_message",
-	"read_pane",
-	"wait_for_reply",
-	"broadcast",
-	"spawn_pane",
-	"close_pane",
-	"interrupt",
-	"set_status",
-	"wait_for_event",
-	"run_command",
-	"session_info",
-]
+import ProductShot from "@/components/ProductShot.astro"
 ---
 
-<section id="orchestration" class="border-b">
-	<div class="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-		<div class="grid items-start gap-12 lg:grid-cols-2 lg:gap-16">
+<section id="orchestration" class="overflow-hidden bg-hero px-6 py-24 sm:px-8">
+	<div class="mx-auto w-full max-w-[88rem]">
+		<div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
 			<div class="flex flex-col gap-8">
-				<SectionHeading eyebrow="orchestration" title="Agents that orchestrate agents.">
+				<SectionHeading eyebrow="agents" title="Your terminal, with a chain of command.">
 					<p>
-						On startup, ordo writes its MCP server into the config of every agent CLI it finds
-						— zero setup. From that moment each agent has a call sign and a radio: it can
-						discover its peers, delegate work, read their screens, interrupt them, and spawn
-						reinforcements into new panes.
+						ordo is a first-class home for AI agent CLIs. On startup it writes its MCP server
+						into the config of every agent it finds, with zero setup. From that moment each
+						agent has a call sign and a radio: it can discover its peers, delegate work, read
+						their screens, interrupt them, and spawn reinforcements into new panes.
 					</p>
 				</SectionHeading>
-				<div class="flex flex-wrap gap-2">
-					{tools.map((tool) => (
-						<Badge variant="outline" class="font-mono text-xs text-muted-foreground">{tool}</Badge>
-					))}
-				</div>
-				<p class="text-sm text-muted-foreground">
+				<p class="max-w-xl text-base leading-relaxed text-stone">
 					Not into hands-off delegation? Everything an agent can do, you can do from your own
-					shell with the <span class="font-mono text-foreground">ordo</span> CLI — or watch it
-					all scroll by in the command center.
+					shell with the <span class="font-mono text-ink">ordo</span> CLI, or watch it all
+					scroll by in the command center.
 				</p>
 			</div>
-			<div class="flex flex-col gap-4">
-				<TerminalWindow title="session · centurion-optio">
-					<pre class="whitespace-pre"><span class="text-primary">legatus</span> <span class="text-muted-foreground">(claude)</span>   spawn_pane --agent codex --name optio
-<span class="text-muted-foreground">daemon</span>             pane <span class="text-foreground">optio</span> online · cyan
-<span class="text-primary">legatus</span>            send_message optio <span class="text-muted-foreground">"take apps/cli/src/core, report back"</span>
-<span class="text-foreground">optio</span> <span class="text-muted-foreground">(codex)</span>      set_status <span class="text-muted-foreground">"refactoring core/session.ts"</span>
-<span class="text-primary">legatus</span>            wait_for_reply optio
-<span class="text-foreground">optio</span>              <span class="text-muted-foreground">"done — 14 files touched, tests green"</span>
-<span class="text-primary">legatus</span>            broadcast <span class="text-muted-foreground">"wrap up, we ship tonight"</span></pre>
-				</TerminalWindow>
-				<MediaPlaceholder
-					kind="video"
-					aspect="aspect-video"
-					label="Screen recording (~20s): one agent pane spawning a second agent with spawn_pane, the new window tiling into the formation, then a message typed into it automatically via send_message."
+			<div class="flex items-center">
+				<ProductShot
+					src="/product/agent-communication.png"
+					alt="Two Claude Code agent panes communicating through Ordo around the central command center."
+					class="-mx-6 sm:mx-0 lg:w-[118%] lg:max-w-none"
 				/>
 			</div>
 		</div>

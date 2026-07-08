@@ -1,0 +1,89 @@
+---
+interface CommandDocItem {
+	id: string
+	command: string
+	title: string
+	summary: string
+	syntax: string[]
+	does: string
+	means: string
+	options?: { flag: string; text: string }[]
+	examples?: { command: string; text: string }[]
+	notes?: string[]
+}
+
+interface Props {
+	item: CommandDocItem
+}
+
+const { item } = Astro.props
+---
+
+<article id={item.id} class="min-w-0 max-w-full scroll-mt-24 border-t border-ink/10 py-10 first:border-t-0 first:pt-0">
+	<div class="grid min-w-0 max-w-full gap-8 xl:grid-cols-[minmax(0,1fr)_18rem]">
+		<div class="min-w-0" style="min-width: 0; max-width: 100%; width: 100%;">
+			<p class="font-mono text-sm text-arch-ink dark:text-arch">{item.command}</p>
+			<h3 class="mt-3 text-3xl leading-tight font-semibold tracking-tight text-ink">{item.title}</h3>
+			<p class="mt-4 max-w-3xl text-base leading-relaxed text-stone">{item.summary}</p>
+
+			<div class="mt-8 grid gap-8 md:grid-cols-2">
+				<div>
+					<h4 class="text-sm font-semibold text-ink">What it does</h4>
+					<p class="mt-2 text-sm leading-relaxed text-stone">{item.does}</p>
+				</div>
+				<div>
+					<h4 class="text-sm font-semibold text-ink">What it means for you</h4>
+					<p class="mt-2 text-sm leading-relaxed text-stone">{item.means}</p>
+				</div>
+			</div>
+
+			{item.options && item.options.length > 0 && (
+				<div class="mt-8">
+					<h4 class="text-sm font-semibold text-ink">Options</h4>
+					<dl class="mt-3 divide-y divide-ink/10 border-y border-ink/10">
+						{item.options.map((option) => (
+							<div class="grid gap-2 py-3 sm:grid-cols-[12rem_1fr]">
+								<dt class="font-mono text-xs text-arch-ink dark:text-arch">{option.flag}</dt>
+								<dd class="text-sm leading-relaxed text-stone">{option.text}</dd>
+							</div>
+						))}
+					</dl>
+				</div>
+			)}
+
+			{item.notes && item.notes.length > 0 && (
+				<div class="mt-8">
+					<h4 class="text-sm font-semibold text-ink">Notes</h4>
+					<ul class="mt-3 space-y-2 text-sm leading-relaxed text-stone">
+						{item.notes.map((note) => <li>{note}</li>)}
+					</ul>
+				</div>
+			)}
+		</div>
+
+		<div class="min-w-0 max-w-full" style="min-width: 0; max-width: 100%; width: 100%;">
+			<div class="min-w-0 max-w-full overflow-hidden rounded-lg bg-pine-deep p-4 text-zinc-100 shadow-lg shadow-black/10 ring-1 ring-white/10">
+				<p class="text-xs font-medium uppercase tracking-[0.25em] text-zinc-500">syntax</p>
+				<div class="mt-3 space-y-2 overflow-x-auto font-mono text-xs leading-relaxed">
+					{item.syntax.map((line) => (
+						<pre><code>{line}</code></pre>
+					))}
+				</div>
+			</div>
+
+			{item.examples && item.examples.length > 0 && (
+				<div class="mt-4 min-w-0 max-w-full overflow-hidden rounded-lg border border-ink/10 bg-white/30 p-4 dark:bg-white/[0.03]">
+					<p class="text-xs font-medium uppercase tracking-[0.25em] text-stone">examples</p>
+					<div class="mt-4 space-y-4">
+						{item.examples.map((example) => (
+							<div>
+								<pre class="overflow-x-auto font-mono text-xs text-ink"><code>{example.command}</code></pre>
+								<p class="mt-1.5 text-xs leading-relaxed text-stone">{example.text}</p>
+							</div>
+						))}
+					</div>
+				</div>
+			)}
+		</div>
+	</div>
+</article>

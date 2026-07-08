@@ -1,30 +1,52 @@
 ---
-import { Badge } from "@/components/ui/badge"
+import claudeCode from "@lobehub/icons-static-svg/icons/claudecode.svg?raw"
+import codex from "@lobehub/icons-static-svg/icons/codex.svg?raw"
+import geminiCli from "@lobehub/icons-static-svg/icons/geminicli.svg?raw"
+import githubCopilot from "@lobehub/icons-static-svg/icons/githubcopilot.svg?raw"
+import cursor from "@lobehub/icons-static-svg/icons/cursor.svg?raw"
+import goose from "@lobehub/icons-static-svg/icons/goose.svg?raw"
+import amp from "@lobehub/icons-static-svg/icons/amp.svg?raw"
+import kiloCode from "@lobehub/icons-static-svg/icons/kilocode.svg?raw"
+import qwen from "@lobehub/icons-static-svg/icons/qwen.svg?raw"
+import openCode from "@lobehub/icons-static-svg/icons/opencode.svg?raw"
 
 const agents = [
-	"Claude Code",
-	"Codex",
-	"Gemini CLI",
-	"GitHub Copilot",
-	"Cursor",
-	"Goose",
-	"Amp",
-	"Kilo Code",
-	"Qwen Code",
-	"OpenCode",
-	"Droid",
+	{ name: "Claude Code", icon: claudeCode },
+	{ name: "Codex", icon: codex },
+	{ name: "Gemini CLI", icon: geminiCli },
+	{ name: "GitHub Copilot", icon: githubCopilot },
+	{ name: "Cursor", icon: cursor },
+	{ name: "Goose", icon: goose },
+	{ name: "Amp", icon: amp },
+	{ name: "Kilo Code", icon: kiloCode },
+	{ name: "Qwen Code", icon: qwen },
+	{ name: "OpenCode", icon: openCode },
+	{ name: "Droid", icon: null },
 ]
 ---
 
-<section class="border-b">
-	<div class="mx-auto flex w-full max-w-6xl flex-col items-center gap-5 px-4 py-10 sm:px-6">
-		<p class="font-mono text-xs uppercase tracking-[0.3em] text-muted-foreground">
-			wires itself into the agents you already run
+<section class="bg-hero">
+	<div class="mx-auto flex w-full max-w-[88rem] flex-col items-center gap-10 px-6 py-16 sm:px-8">
+		<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">
+			run an agent in a pane and it wires in with zero setup
 		</p>
-		<div class="flex flex-wrap justify-center gap-2">
-			{agents.map((agent) => (
-				<Badge variant="secondary" class="px-3 py-1 text-sm font-normal text-muted-foreground">{agent}</Badge>
-			))}
+		<div class="w-full overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
+			<div class="logo-marquee flex w-max">
+				{[false, true].map((duplicate) => (
+					<ul class="flex items-center gap-x-16 pr-16" aria-hidden={duplicate}>
+						{agents.map((agent) => (
+							<li class="text-stone/80 transition-colors hover:text-ink" title={agent.name}>
+								{agent.icon ? (
+									<span class="block [&>svg]:size-10" set:html={agent.icon} />
+								) : (
+									<span class="block text-3xl leading-10 font-semibold tracking-tight">{agent.name}</span>
+								)}
+								{!duplicate && <span class="sr-only">{agent.name}</span>}
+							</li>
+						))}
+					</ul>
+				))}
+			</div>
 		</div>
 	</div>
 </section>

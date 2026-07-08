@@ -1,46 +1,25 @@
 ---
 import SectionHeading from "@/components/SectionHeading.astro"
-import TerminalWindow from "@/components/TerminalWindow.astro"
-import MediaPlaceholder from "@/components/MediaPlaceholder.astro"
+import ProductShot from "@/components/ProductShot.astro"
 ---
 
-<section id="cli" class="border-b">
-	<div class="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-		<div class="grid items-start gap-12 lg:grid-cols-2 lg:gap-16">
-			<div class="flex flex-col gap-8">
+<section id="cli" class="overflow-hidden bg-hero px-6 py-24 sm:px-8">
+	<div class="mx-auto w-full max-w-[88rem]">
+		<div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+			<div>
 				<SectionHeading eyebrow="cli" title="Scriptable down to the last pane.">
 					<p>
 						The launcher is optional. Every capability is a plain subcommand you can call from
-						any shell, pipe into scripts, or hand to CI — with tab completion for PowerShell,
+						any shell, pipe into scripts, or hand to CI, with tab completion for PowerShell,
 						bash and zsh.
 					</p>
 				</SectionHeading>
-				<MediaPlaceholder
-					kind="image"
-					aspect="aspect-video"
-					label="Screenshot: the ordo launcher TUI — purple sidebar listing saved sessions, live agent log on the right, single-key command bar at the bottom."
-				/>
 			</div>
-			<TerminalWindow title="pwsh · ordo help">
-				<pre class="whitespace-pre"><span class="text-primary">PS&gt;</span> ordo help
-<span class="font-bold">ordo</span> — a terminal multiplexer for orchestrating AI agents
-
-<span class="text-muted-foreground">Session commands:</span>
-  ordo                 open the launcher in a fresh window
-  ordo new             start a fresh session immediately
-  ordo restore &lt;id&gt;    reopen a saved session
-  ordo sessions        list saved sessions
-  ordo delete &lt;id&gt;     delete a saved session
-
-<span class="text-muted-foreground">Agent commands:</span>
-  ordo agents          list live agent panes
-  ordo spawn           spawn an agent pane
-  ordo send &lt;pane&gt;     send a message to a pane
-  ordo read &lt;pane&gt;     read a pane's output
-  ordo broadcast       send a message to every agent
-  ordo status          show agent statuses
-  ordo interrupt &lt;pane&gt;  interrupt a pane</pre>
-			</TerminalWindow>
+			<ProductShot
+				src="/product/launcher-cli.png"
+				alt="Ordo launcher TUI in Windows Terminal showing saved sessions and live log input."
+				class="-mx-6 sm:mx-0 lg:w-[118%] lg:max-w-none"
+			/>
 		</div>
 	</div>
 </section>

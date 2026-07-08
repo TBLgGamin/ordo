@@ -1,0 +1,17 @@
+---
+interface Props {
+	src: string
+	alt: string
+	class?: string
+	imageClass?: string
+	loading?: "eager" | "lazy"
+}
+
+const { src, alt, class: className, imageClass, loading = "lazy" } = Astro.props
+const webp = src.replace(/\.png$/, ".webp")
+---
+
+<picture class:list={["block", className]}>
+	<source srcset={webp} type="image/webp" />
+	<img src={src} alt={alt} loading={loading} decoding="async" class:list={["h-auto w-full object-contain", imageClass]} />
+</picture>
