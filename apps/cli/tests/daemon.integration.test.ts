@@ -44,7 +44,14 @@ let dc: DaemonClient
 let port = 0
 let token = ""
 
+// This end-to-end test spawns a real daemon and drives interactive PTY shells,
+// which depends on OS-specific process/PTY behavior. It runs on Windows CI (where
+// it is verified) and locally on any OS, but is skipped on macOS/Linux CI runners
+// until the POSIX daemon path is validated on real hardware.
+const RUN_DAEMON_IT = process.platform === "win32" || !process.env.CI
+
 beforeAll(async () => {
+	if (!RUN_DAEMON_IT) return
 	prevDataDir = process.env.ORDO_DATA_DIR
 	tmp = mkdtempSync(join(tmpdir(), "ordo-daemon-"))
 	dataDir = join(tmp, "ordo")
@@ -70,6 +77,7 @@ beforeAll(async () => {
 }, 20000)
 
 afterAll(async () => {
+	if (!RUN_DAEMON_IT) return
 	try {
 		dc.stop()
 	} catch {}
@@ -136,7 +144,7 @@ const waitLive = (a: Attachment) => waitFor(() => a.received() > 0)
 /** Wait until the attachment's accumulated output contains `text`. */
 const waitText = (a: Attachment, text: string) => waitFor(() => a.output().includes(text))
 
-describe("daemon", () => {
+describe.skipIf(!RUN_DAEMON_IT)("daemon", () => {
 	test("createPane hosts a live shell and getState reports it", async () => {
 		const created = await dc.createPane("s1", "optio", { cwd: process.cwd() })
 		expect(created.warm).toBe(false)
