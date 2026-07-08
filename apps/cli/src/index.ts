@@ -1,22 +1,8 @@
 #!/usr/bin/env bun
-import { buildInWindowArgs, type LaunchIntent, parseInWindowArgs } from "./cli/launch"
+import { type LaunchIntent, openCommandCenter, parseInWindowArgs } from "./cli/launch"
 import { usageText } from "./cli/usage"
-import { BUN_EXE, ENTRY_PATH, PROJECT_DIR } from "./core/config"
-import { OrdoError } from "./core/errors"
-
-async function launchInWindow(intent: LaunchIntent) {
-	if (intent.kind === "restore") {
-		const { sessionExists } = await import("./core/session")
-		if (!sessionExists(intent.name)) {
-			console.error(`ordo: no saved session "${intent.name}"`)
-			process.exit(1)
-		}
-	}
-	const { openSelfWindow } = await import("./platform/wt")
-	const commandline = [BUN_EXE, "run", ENTRY_PATH, ...buildInWindowArgs(intent)]
-	const restoreName = intent.kind === "restore" ? intent.name : undefined
-	await openSelfWindow(commandline, PROJECT_DIR, restoreName)
-}
+import { AGENT_PROGRAMS, parseArgValue } from "./core/config"
+import { OrdoError, reportError } from "./core/errors"
 
 async function runInWindow(intent: LaunchIntent) {
 	const [{ createCliRenderer }, { runOrchestrator }] = await Promise.all([
@@ -93,20 +79,28 @@ async function main() {
 		return
 	}
 	if (sub === undefined) {
-		await launchInWindow({ kind: "launcher" })
+		await openCommandCenter({ kind: "launcher" })
 		return
 	}
 	if (sub === "new") {
-		await launchInWindow({ kind: "new" })
+		const rest = Bun.argv.slice(3)
+		const agent = parseArgValue(rest, "--agent")
+		const name = parseArgValue(rest, "--name")
+		const cwd = parseArgValue(rest, "--cwd")
+		if (agent && !AGENT_PROGRAMS.has(agent.toLowerCase())) {
+			throw new OrdoError(
+				`"${agent}" is not a launchable agent (${[...AGENT_PROGRAMS].join(", ")})`,
+				{ exitCode: 2 },
+			)
+		}
+		const seed = agent || name || cwd ? { agent, name, cwd } : undefined
+		await openCommandCenter({ kind: "new", seed })
 		return
 	}
 	if (sub === "restore") {
 		const name = Bun.argv[3]
-		if (!name) {
-			console.error("ordo: restore requires a session name")
-			process.exit(2)
-		}
-		await launchInWindow({ kind: "restore", name })
+		if (!name) throw new OrdoError("restore requires a session name", { exitCode: 2 })
+		await openCommandCenter({ kind: "restore", name })
 		return
 	}
 	console.error(`ordo: unknown command "${sub}"\n`)
@@ -114,8 +108,4 @@ async function main() {
 	process.exit(1)
 }
 
-main().catch((err) => {
-	if (err instanceof OrdoError) console.error(`ordo: ${err.message}`)
-	else console.error(err)
-	process.exit(1)
-})
+main().catch(reportError)

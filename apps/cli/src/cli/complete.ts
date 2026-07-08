@@ -30,6 +30,11 @@ const SESSION_ARG_SUBS = new Set(["restore", "delete"])
 
 const PANE_TARGET_SUBS = new Set(["send", "read", "interrupt"])
 
+const FLAG_SUBS: Record<string, string[]> = {
+	new: ["--agent", "--name", "--cwd"],
+	spawn: ["--agent", "--name", "--cwd"],
+}
+
 function filt(pool: string[], partial: string): string[] {
 	const p = partial.toLowerCase()
 	return pool.filter((c) => c.toLowerCase().startsWith(p))
@@ -49,6 +54,13 @@ export function completionCandidates(words: string[], ctx: CompletionContext): s
 	}
 	if (sub && SESSION_ARG_SUBS.has(sub) && positionals.length === 1) {
 		return filt(ctx.sessions, partial)
+	}
+	if (sub && FLAG_SUBS[sub] && partial.startsWith("-")) {
+		const used = new Set(before.filter((w) => w.startsWith("--")))
+		return filt(
+			FLAG_SUBS[sub].filter((f) => !used.has(f)),
+			partial,
+		)
 	}
 	return []
 }

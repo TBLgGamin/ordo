@@ -633,6 +633,7 @@ class Daemon {
 				id: req.id,
 				ok: false,
 				error: "the ordo command center for this session is not open",
+				code: "no-owner",
 			})
 			return
 		}

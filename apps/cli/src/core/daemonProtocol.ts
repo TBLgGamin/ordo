@@ -116,7 +116,7 @@ export type ControlRequest =
 /** Daemon → orchestrator responses. */
 export type ControlResponse =
 	| { id: number; ok: true; result?: unknown }
-	| { id: number; ok: false; error: string }
+	| { id: number; ok: false; error: string; code?: string }
 
 /** Per-pane state the daemon tracks and reports. */
 export interface PaneState {

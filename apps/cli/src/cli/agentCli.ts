@@ -1,8 +1,12 @@
 import { AGENT_PROGRAMS, parseArgValue } from "../core/config"
 import type { PaneState, StatusEntry } from "../core/daemonProtocol"
-import { listSessionNames } from "../core/session"
-import { DaemonClient } from "../daemon/daemonClient"
+import { OrdoError, reportError } from "../core/errors"
+import { listSessionNames, sessionExists } from "../core/session"
+import { DaemonClient, SPAWN_CLIENT_TIMEOUT_MS } from "../daemon/daemonClient"
+import { openCommandCenter } from "./launch"
 import { resolvePane } from "./resolve"
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export type AgentCliCmd =
 	| "send"
@@ -105,36 +109,162 @@ async function resolveTarget(dc: DaemonClient, session: string, input: string): 
 	const r = resolvePane(input, names)
 	if (r.ok) return r.pane
 	if (r.candidates.length > 0) {
-		console.error(
-			`ordo: "${input}" is ambiguous or unknown — candidates: ${r.candidates.join(", ")}`,
+		throw new OrdoError(
+			`"${input}" is ambiguous or unknown — candidates: ${r.candidates.join(", ")}`,
+			{ exitCode: 2 },
 		)
-	} else {
-		console.error(`ordo: no pane matching "${input}"`)
 	}
-	process.exit(2)
+	throw new OrdoError(`no pane matching "${input}"`, { exitCode: 2 })
+}
+
+async function livePanes(dc: DaemonClient, session: string): Promise<PaneState[]> {
+	try {
+		const { panes } = await dc.getState(session)
+		return panes.filter((p) => p.live)
+	} catch {
+		return []
+	}
+}
+
+async function ensureAttached(dc: DaemonClient): Promise<void> {
+	if (!dc.isConnected) await dc.tryAttach().catch(() => {})
+}
+
+async function waitUntil<T>(
+	fn: () => Promise<T | null | undefined>,
+	opts: { timeoutMs: number; intervalMs: number },
+): Promise<T | null> {
+	const deadline = Date.now() + opts.timeoutMs
+	for (;;) {
+		const r = await fn()
+		if (r) return r
+		if (Date.now() >= deadline) return null
+		await sleep(opts.intervalMs)
+	}
+}
+
+async function reachableSessions(dc: DaemonClient): Promise<Set<string>> {
+	const out = new Set<string>()
+	for (const name of listSessionNames()) {
+		if ((await livePanes(dc, name)).length > 0) out.add(name)
+	}
+	return out
+}
+
+async function ensureReachable(dc: DaemonClient, session: string): Promise<void> {
+	if ((await livePanes(dc, session)).length > 0) return
+	if (!sessionExists(session)) {
+		throw new OrdoError(`no saved session "${session}"`, { exitCode: 2 })
+	}
+	await openCommandCenter({ kind: "restore", name: session })
+	const ok = await waitUntil(
+		async () => {
+			await ensureAttached(dc)
+			return (await livePanes(dc, session)).length > 0 ? true : null
+		},
+		{ timeoutMs: SPAWN_CLIENT_TIMEOUT_MS, intervalMs: 300 },
+	)
+	if (!ok) throw new OrdoError(`session "${session}" did not come up`)
+}
+
+function printSpawned(pane: string, agent: string | undefined): void {
+	console.log(agent ? `opened "${pane}" running ${agent}` : `opened "${pane}"`)
+}
+
+function isNoOwner(e: unknown): boolean {
+	return (
+		e instanceof OrdoError &&
+		(e.code === "no-owner" || e.message.includes("command center for this session is not open"))
+	)
+}
+
+async function runSpawn(dc: DaemonClient, args: string[]): Promise<void> {
+	const cwd = parseArgValue(args, "--cwd")
+	const agent = parseArgValue(args, "--agent")
+	const name = parseArgValue(args, "--name")
+	if (agent && !AGENT_PROGRAMS.has(agent.toLowerCase())) {
+		throw new OrdoError(
+			`"${agent}" is not a launchable agent (${[...AGENT_PROGRAMS].join(", ")})`,
+			{ exitCode: 2 },
+		)
+	}
+	const from = process.env.ORDO_PANE ?? "cli"
+	const session = await resolveSession(args, async () => [...(await reachableSessions(dc))])
+	const paneOpts = { requestedBy: from, name, cwd, agent }
+
+	if (session) {
+		try {
+			const res = await dc.requestPane(session, paneOpts)
+			printSpawned(res.pane, agent)
+			return
+		} catch (e) {
+			if (!isNoOwner(e)) throw e
+		}
+		if (!sessionExists(session))
+			throw new OrdoError(`no saved session "${session}"`, { exitCode: 2 })
+		await openCommandCenter({ kind: "restore", name: session })
+		const res = await waitUntil(
+			async () => {
+				await ensureAttached(dc)
+				try {
+					return await dc.requestPane(session, paneOpts)
+				} catch (e) {
+					if (isNoOwner(e)) return null
+					throw e
+				}
+			},
+			{ timeoutMs: SPAWN_CLIENT_TIMEOUT_MS, intervalMs: 300 },
+		)
+		if (!res) throw new OrdoError(`session "${session}" did not come up`)
+		printSpawned(res.pane, agent)
+		return
+	}
+
+	const before = await reachableSessions(dc)
+	await openCommandCenter({ kind: "new", seed: { agent, name, cwd } })
+	const pane = await waitUntil(
+		async () => {
+			await ensureAttached(dc)
+			for (const s of listSessionNames()) {
+				if (before.has(s)) continue
+				const live = await livePanes(dc, s)
+				if (live.length === 0) continue
+				const match = name ? live.find((p) => p.pane === name) : live[0]
+				if (match) return match.pane
+			}
+			return null
+		},
+		{ timeoutMs: SPAWN_CLIENT_TIMEOUT_MS, intervalMs: 300 },
+	)
+	if (!pane) throw new OrdoError("the new ordo session did not come up")
+	printSpawned(pane, agent)
 }
 
 export async function runAgentCli(cmd: AgentCliCmd, args: string[]): Promise<void> {
+	try {
+		await runAgentCliCore(cmd, args)
+	} catch (e) {
+		reportError(e)
+	}
+}
+
+async function runAgentCliCore(cmd: AgentCliCmd, args: string[]): Promise<void> {
 	const dc = new DaemonClient()
 	try {
-		if (!(await dc.tryAttach())) {
-			console.error("ordo: daemon not running")
-			process.exit(1)
+		await dc.tryAttach()
+
+		if (cmd === "spawn") {
+			await runSpawn(dc, args)
+			return
 		}
-		const session = await resolveSession(args, async () => {
-			const live: string[] = []
-			for (const name of listSessionNames()) {
-				try {
-					const { panes } = await dc.getState(name)
-					if (panes.some((p) => p.live)) live.push(name)
-				} catch {}
-			}
-			return live
-		})
+
+		const session = await resolveSession(args, async () => [...(await reachableSessions(dc))])
 		if (!session) {
-			console.error("ordo: could not determine session (set ORDO_SESSION or pass --session <id>)")
-			process.exit(2)
+			throw new OrdoError("could not determine session (set ORDO_SESSION or pass --session <id>)", {
+				exitCode: 2,
+			})
 		}
+		await ensureReachable(dc, session)
 
 		if (cmd === "agents") {
 			const { panes } = await dc.getState(session)
@@ -155,8 +285,9 @@ export async function runAgentCli(cmd: AgentCliCmd, args: string[]): Promise<voi
 			}
 			const me = process.env.ORDO_PANE
 			if (!me) {
-				console.error("ordo: setting a status requires running inside a pane (ORDO_PANE)")
-				process.exit(2)
+				throw new OrdoError("setting a status requires running inside a pane (ORDO_PANE)", {
+					exitCode: 2,
+				})
 			}
 			await dc.setStatus(session, me, text)
 			console.log(`status set: ${text}`)
@@ -167,8 +298,7 @@ export async function runAgentCli(cmd: AgentCliCmd, args: string[]): Promise<voi
 			const positional = stripFlag(args, "--session")
 			const text = positional.join(" ")
 			if (text.trim() === "") {
-				console.error("ordo: usage: ordo broadcast <text...>")
-				process.exit(2)
+				throw new OrdoError("usage: ordo broadcast <text...>", { exitCode: 2 })
 			}
 			const from = process.env.ORDO_PANE ?? "cli"
 			const { results } = await dc.broadcast(session, { from, text })
@@ -182,30 +312,11 @@ export async function runAgentCli(cmd: AgentCliCmd, args: string[]): Promise<voi
 			return
 		}
 
-		if (cmd === "spawn") {
-			const cwd = parseArgValue(args, "--cwd")
-			const agent = parseArgValue(args, "--agent")
-			const name = parseArgValue(args, "--name")
-			if (agent && !AGENT_PROGRAMS.has(agent.toLowerCase())) {
-				console.error(
-					`ordo: "${agent}" is not a launchable agent (${[...AGENT_PROGRAMS].join(", ")})`,
-				)
-				process.exit(2)
-			}
-			const from = process.env.ORDO_PANE ?? "cli"
-			const res = await dc.requestPane(session, { requestedBy: from, name, cwd, agent })
-			console.log(agent ? `opened "${res.pane}" running ${agent}` : `opened "${res.pane}"`)
-			return
-		}
-
 		const positional = stripFlags(args, ["--session", "--lines"])
 		const target = positional[0]
 
 		if (cmd === "read") {
-			if (!target) {
-				console.error("ordo: usage: ordo read <pane> [--lines N]")
-				process.exit(2)
-			}
+			if (!target) throw new OrdoError("usage: ordo read <pane> [--lines N]", { exitCode: 2 })
 			const resolved = await resolveTarget(dc, session, target)
 			const lines = Number(parseArgValue(args, "--lines")) || undefined
 			const { text } = await dc.readPane(session, resolved, lines)
@@ -214,10 +325,7 @@ export async function runAgentCli(cmd: AgentCliCmd, args: string[]): Promise<voi
 		}
 
 		if (cmd === "interrupt") {
-			if (!target) {
-				console.error("ordo: usage: ordo interrupt <pane>")
-				process.exit(2)
-			}
+			if (!target) throw new OrdoError("usage: ordo interrupt <pane>", { exitCode: 2 })
 			const resolved = await resolveTarget(dc, session, target)
 			await dc.interrupt(session, resolved)
 			console.log(`sent Ctrl-C to ${resolved}`)
@@ -226,8 +334,7 @@ export async function runAgentCli(cmd: AgentCliCmd, args: string[]): Promise<voi
 
 		const message = positional.slice(1).join(" ")
 		if (!target || message === "") {
-			console.error("ordo: usage: ordo send <pane> <text...>")
-			process.exit(2)
+			throw new OrdoError("usage: ordo send <pane> <text...>", { exitCode: 2 })
 		}
 		const resolved = await resolveTarget(dc, session, target)
 		const from = process.env.ORDO_PANE ?? "cli"

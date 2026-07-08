@@ -53,4 +53,20 @@ describe("completionCandidates", () => {
 	test("broadcast/status take no positional pane target", () => {
 		expect(completionCandidates(["broadcast", "opt"], ctx)).toEqual([])
 	})
+
+	test("seed flags complete after new", () => {
+		expect(completionCandidates(["new", "--"], ctx)).toEqual(["--agent", "--name", "--cwd"])
+		expect(completionCandidates(["new", "--n"], ctx)).toEqual(["--name"])
+	})
+
+	test("already-used seed flags are not re-offered", () => {
+		expect(completionCandidates(["new", "--agent", "claude", "--"], ctx)).toEqual([
+			"--name",
+			"--cwd",
+		])
+	})
+
+	test("agents complete after new --agent", () => {
+		expect(completionCandidates(["new", "--agent", "c"], ctx)).toEqual(["claude", "codex"])
+	})
 })

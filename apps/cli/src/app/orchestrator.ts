@@ -7,6 +7,7 @@
  * process, so closing/reopening reattaches to the same live shell.
  */
 
+import type { PaneSeed } from "../cli/launch"
 import { ensureAgentIntegrations } from "../core/agentSetup"
 import { paletteColor } from "../core/colors"
 import {
@@ -224,11 +225,11 @@ export class Orchestrator {
 	}
 
 	/** Start a brand-new session in this window and spawn its first pane. */
-	async newSession(): Promise<void> {
-		return this.serialize(() => this.newSessionCore())
+	async newSession(seed?: PaneSeed): Promise<void> {
+		return this.serialize(() => this.newSessionCore(seed))
 	}
 
-	private async newSessionCore(): Promise<void> {
+	private async newSessionCore(seed?: PaneSeed): Promise<void> {
 		await this.teardownCurrentSession()
 		this.sizeCenter() // a fresh session gets the default centered command window
 		this.sessionId = this.freshSessionId()
@@ -236,7 +237,7 @@ export class Orchestrator {
 		this.manualTitle = false
 		this.log(`new session: ${this.sessionId}`)
 		await this.beginSession()
-		await this.addPaneCore()
+		await this.addPaneCore({ cwd: seed?.cwd, name: seed?.name, launch: seed?.agent })
 	}
 
 	/**

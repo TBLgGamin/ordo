@@ -25,14 +25,16 @@ import type {
 	WaitResult,
 } from "../core/daemonProtocol"
 import { PROTOCOL_VERSION } from "../core/daemonProtocol"
-import { errMessage } from "../core/errors"
+import { errMessage, OrdoError } from "../core/errors"
 import { encode, LineDecoder } from "../core/protocol"
 import { ordoDir } from "../core/session"
 import { acquireSpawnLock, releaseSpawnLock } from "./spawnLock"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-const SPAWN_CLIENT_TIMEOUT_MS = 25000
+export const SPAWN_CLIENT_TIMEOUT_MS = 25000
+
+const DAEMON_UNREACHABLE_HINT = "open an ordo window (run `ordo`) to start it, then retry."
 
 /** Omit that distributes over a union (so each variant keeps its own shape). */
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never
@@ -56,6 +58,10 @@ export class DaemonClient {
 
 	get connectedPid(): number | undefined {
 		return this.daemonPid
+	}
+
+	get isConnected(): boolean {
+		return this.connected
 	}
 
 	/** Subscribe to daemon pane events. Returns an unsubscribe fn. */
@@ -214,7 +220,7 @@ export class DaemonClient {
 				if (p) {
 					this.pending.delete(msg.id)
 					if (msg.ok) p.resolve(msg.result)
-					else p.reject(new Error(msg.error))
+					else p.reject(new OrdoError(msg.error, { code: msg.code }))
 				}
 			} else if ("event" in msg) {
 				for (const l of this.listeners) {
@@ -232,7 +238,8 @@ export class DaemonClient {
 		const wasConnected = this.connected
 		this.connected = false
 		this.sock = undefined
-		for (const { reject } of this.pending.values()) reject(new Error("daemon disconnected"))
+		for (const { reject } of this.pending.values())
+			reject(new OrdoError("the ordo daemon disconnected", { hint: DAEMON_UNREACHABLE_HINT }))
 		this.pending.clear()
 		if (this.closedByUser || !wasConnected) return
 		this.notifyConnection(false)
@@ -265,13 +272,20 @@ export class DaemonClient {
 
 	private request<T>(req: RequestBody, timeoutMs = 5000): Promise<T> {
 		const sock = this.sock
-		if (!sock) return Promise.reject(new Error("not connected to daemon"))
+		if (!sock)
+			return Promise.reject(
+				new OrdoError("not connected to the ordo daemon", { hint: DAEMON_UNREACHABLE_HINT }),
+			)
 		const id = this.nextId++
 		const full = { ...req, id } as ControlRequest
 		return new Promise<T>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(id)
-				reject(new Error(`daemon request '${req.op}' timed out`))
+				reject(
+					new OrdoError(`the ordo daemon did not respond to '${req.op}'`, {
+						hint: DAEMON_UNREACHABLE_HINT,
+					}),
+				)
 			}, timeoutMs)
 			this.pending.set(id, {
 				resolve: (v) => {

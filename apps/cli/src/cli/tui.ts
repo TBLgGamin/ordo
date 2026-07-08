@@ -23,7 +23,7 @@ import {
 	type InputResult,
 	type InputState,
 } from "./input"
-import type { LaunchIntent } from "./launch"
+import type { LaunchIntent, PaneSeed } from "./launch"
 import { PURPLE, sessionChunks } from "./styled"
 
 interface LoadedSession {
@@ -371,9 +371,9 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		redrawInput()
 	}
 
-	async function doNew(): Promise<void> {
+	async function doNew(seed?: PaneSeed): Promise<void> {
 		// newSession() closes any current session first (single atomic action).
-		await orchestrator.newSession().catch(() => {})
+		await orchestrator.newSession(seed).catch(() => {})
 	}
 
 	async function doAdd(): Promise<void> {
@@ -581,6 +581,6 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 	// Otherwise this window stays a launcher — size its (session-less) command
 	// window to the default so it looks right.
 	if (launch.kind === "restore") void orchestrator.openSession(launch.name).catch(() => {})
-	else if (launch.kind === "new") void doNew()
+	else if (launch.kind === "new") void doNew(launch.seed)
 	else orchestrator.sizeCenter()
 }

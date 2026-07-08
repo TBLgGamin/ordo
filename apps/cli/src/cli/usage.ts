@@ -5,7 +5,7 @@ const LINES = [
 	"",
 	"Session commands:",
 	"  ordo                 open the launcher in a fresh window",
-	"  ordo new             start a fresh session immediately",
+	"  ordo new             start a fresh session immediately (--agent, --name, --cwd)",
 	"  ordo restore <id>    reopen a saved session",
 	"  ordo sessions        list saved sessions",
 	"  ordo delete <id>     delete a saved session",
@@ -22,6 +22,9 @@ const LINES = [
 	"Other commands:",
 	"  ordo completion [shell]  print the shell completion script",
 	"  ordo help            show this help",
+	"",
+	"Agent commands open (or reopen) a command center automatically when one",
+	"isn't running, so they work from any terminal.",
 ]
 
 export function usageText(): string {

@@ -21,12 +21,22 @@ describe("parseInWindowArgs", () => {
 	test("an unknown mode throws", () => {
 		expect(() => parseInWindowArgs(["bogus"])).toThrow(OrdoError)
 	})
+	test("new carries a pane seed from flags", () => {
+		expect(parseInWindowArgs(["new", "--agent", "claude", "--name", "legatus"])).toEqual({
+			kind: "new",
+			seed: { agent: "claude", name: "legatus", cwd: undefined },
+		})
+	})
+	test("new without seed flags stays bare", () => {
+		expect(parseInWindowArgs(["new"])).toEqual({ kind: "new" })
+	})
 })
 
 describe("buildInWindowArgs round-trips", () => {
 	const intents: LaunchIntent[] = [
 		{ kind: "launcher" },
 		{ kind: "new" },
+		{ kind: "new", seed: { agent: "codex", name: "primus", cwd: "X:/work" } },
 		{ kind: "restore", name: "optio-legate" },
 	]
 	for (const intent of intents) {
