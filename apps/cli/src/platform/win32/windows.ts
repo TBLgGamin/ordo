@@ -36,6 +36,12 @@ function loadUser32() {
 			},
 			GetForegroundWindow: { args: [], returns: FFIType.ptr },
 			SetForegroundWindow: { args: [FFIType.ptr], returns: FFIType.bool },
+			SetWindowLongPtrW: {
+				args: [FFIType.ptr, FFIType.i32, FFIType.ptr],
+				returns: FFIType.ptr,
+			},
+			ShowWindow: { args: [FFIType.ptr, FFIType.i32], returns: FFIType.bool },
+			GetWindow: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
 			MonitorFromWindow: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
 			GetMonitorInfoW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
 			BeginDeferWindowPos: { args: [FFIType.i32], returns: FFIType.ptr },
@@ -94,6 +100,10 @@ const SWP_NOZORDER = 0x0004
 const SWP_NOACTIVATE = 0x0010
 const SWP_ASYNCWINDOWPOS = 0x4000
 const MONITOR_DEFAULTTONEAREST = 0x0002
+const GWLP_HWNDPARENT = -8
+const GW_OWNER = 4
+const SW_HIDE = 0
+const SW_SHOWNA = 8
 
 // DWM window-attribute constants (Windows 11 22000+).
 const DWMWA_BORDER_COLOR = 34
@@ -206,6 +216,39 @@ export function setForegroundWindow(handle: WindowHandle): boolean {
 	return user32().SetForegroundWindow(asPtr(handle))
 }
 
+/**
+ * Make `handle` an OWNED window of `owner` (or free-standing again with null).
+ *
+ * Owned windows collapse into their owner's single Alt-Tab entry and taskbar
+ * button, and Windows raises owner + owned together — so the whole formation
+ * surfaces as one unit. The shell only re-reads ownership on a visibility
+ * change, hence the hide/show cycle; focus is put back if the window had it.
+ */
+export function setWindowOwner(handle: WindowHandle, owner: WindowHandle | null): boolean {
+	if (!handle) return false
+	const u = user32()
+	const target = asPtr(handle)
+	const desired = owner ? asPtr(owner) : null
+	// Already owned as requested — don't blink the window for nothing.
+	if ((u.GetWindow(target, GW_OWNER) ?? null) === desired) return true
+	const wasForeground = u.GetForegroundWindow() === target
+	const wasVisible = u.IsWindowVisible(target)
+	if (wasVisible) u.ShowWindow(target, SW_HIDE)
+	u.SetWindowLongPtrW(target, GWLP_HWNDPARENT, desired)
+	if (wasVisible) u.ShowWindow(target, SW_SHOWNA)
+	if (wasForeground) u.SetForegroundWindow(target)
+	// Changing the owner post-creation is officially unsupported, so confirm it
+	// actually took; callers re-assert later when it didn't (or got undone).
+	return (u.GetWindow(target, GW_OWNER) ?? null) === desired
+}
+
+/** Current owner of `handle` (null if free-standing). */
+export function getWindowOwner(handle: WindowHandle): WindowHandle | null {
+	if (!handle) return null
+	const owner = user32().GetWindow(asPtr(handle), GW_OWNER)
+	return owner ? (owner as unknown as WindowHandle) : null
+}
+
 const rectScratch = new Int32Array(4) // left, top, right, bottom
 
 export function getWindowRect(handle: WindowHandle): Rect | null {
@@ -295,7 +338,12 @@ export function getWorkArea(handle: WindowHandle | null): Rect | null {
 	return { x: left, y: top, w: right - left, h: bottom - top }
 }
 
-const CAPS: WmCapabilities = { manage: true, focus: true, highlight: dwmapiLib !== null }
+const CAPS: WmCapabilities = {
+	manage: true,
+	focus: true,
+	highlight: dwmapiLib !== null,
+	group: true,
+}
 
 export const win32WindowManager: WindowManager = {
 	caps: CAPS,
@@ -309,4 +357,6 @@ export const win32WindowManager: WindowManager = {
 	moveWindows,
 	getWorkArea,
 	setWindowHighlight,
+	setWindowOwner,
+	getWindowOwner,
 }

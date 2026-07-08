@@ -17,7 +17,10 @@ function parseNums(line: string): number[] {
 
 export function createDarwinWindowManager(cfg: DarwinAppConfig): WindowManager {
 	const app = cfg.appName
-	const caps: WmCapabilities = { manage: true, focus: true, highlight: false }
+	// group: false is deliberate — macOS's Cmd-Tab switches whole APPLICATIONS,
+	// and activating the terminal app raises all of its windows together, so a
+	// session already surfaces as one unit; there is no per-window entry to merge.
+	const caps: WmCapabilities = { manage: true, focus: true, highlight: false, group: false }
 
 	function listTerminalWindows(): WindowInfo[] {
 		const script = `tell application "${app}"
@@ -116,5 +119,7 @@ end tell`,
 		moveWindows,
 		getWorkArea,
 		setWindowHighlight() {},
+		setWindowOwner: () => false,
+		getWindowOwner: () => null,
 	}
 }

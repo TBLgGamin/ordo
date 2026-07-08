@@ -2,6 +2,9 @@ import { dlopen, FFIType, type Pointer, ptr, toArrayBuffer } from "bun:ffi"
 import type { Rect, WindowHandle, WindowInfo, WindowManager, WmCapabilities } from "../types"
 
 const XA_WM_NAME = 39n
+const XA_WM_TRANSIENT_FOR = 68n
+const XA_WINDOW = 33n
+const PropModeReplace = 0
 const SubstructureRedirectMask = 1 << 20
 const SubstructureNotifyMask = 1 << 19
 const ClientMessage = 33
@@ -70,6 +73,23 @@ function loadXlib() {
 				},
 				XSendEvent: {
 					args: [FFIType.ptr, FFIType.u64, FFIType.bool, FFIType.i64, FFIType.ptr],
+					returns: FFIType.i32,
+				},
+				XChangeProperty: {
+					args: [
+						FFIType.ptr,
+						FFIType.u64,
+						FFIType.u64,
+						FFIType.u64,
+						FFIType.i32,
+						FFIType.i32,
+						FFIType.ptr,
+						FFIType.i32,
+					],
+					returns: FFIType.i32,
+				},
+				XDeleteProperty: {
+					args: [FFIType.ptr, FFIType.u64, FFIType.u64],
 					returns: FFIType.i32,
 				},
 			})
@@ -195,6 +215,37 @@ class X11 {
 		this.lib.symbols.XFlush(this.display)
 	}
 
+	/** Mark `window` transient for `owner` (the X11 analogue of a Win32 owned window). */
+	setTransientFor(window: bigint, owner: bigint | null): void {
+		if (owner === null) {
+			this.lib.symbols.XDeleteProperty(this.display, window, XA_WM_TRANSIENT_FOR)
+		} else {
+			const value = new BigUint64Array([owner])
+			this.lib.symbols.XChangeProperty(
+				this.display,
+				window,
+				XA_WM_TRANSIENT_FOR,
+				XA_WINDOW,
+				32,
+				PropModeReplace,
+				ptr(value),
+				1,
+			)
+		}
+		this.lib.symbols.XFlush(this.display)
+	}
+
+	getTransientFor(window: bigint): number | null {
+		const owner = this.getCardinals(window, XA_WM_TRANSIENT_FOR)[0]
+		return owner && owner !== 0 ? owner : null
+	}
+
+	/** Add (or remove) _NET_WM_STATE flags on a mapped window via the WM. */
+	changeState(window: bigint, add: boolean, states: string[]): void {
+		const [a = 0n, b = 0n] = states.map((s) => this.atom(s))
+		this.sendClientMessage(window, this.atom("_NET_WM_STATE"), [add ? 1n : 0n, a, b, 1n])
+	}
+
 	moveResize(window: bigint, r: Rect): void {
 		this.lib.symbols.XMoveResizeWindow(
 			this.display,
@@ -260,7 +311,7 @@ export function createX11WindowManager(): WindowManager | null {
 	const root = lib.symbols.XDefaultRootWindow(display) as unknown as bigint
 	const x = new X11(lib, display, root)
 
-	const caps: WmCapabilities = { manage: true, focus: true, highlight: false }
+	const caps: WmCapabilities = { manage: true, focus: true, highlight: false, group: true }
 
 	function listTerminalWindows(): WindowInfo[] {
 		const ids = x.getCardinals(root, x.atom("_NET_CLIENT_LIST"))
@@ -319,6 +370,32 @@ export function createX11WindowManager(): WindowManager | null {
 		return { x: wa[0] ?? 0, y: wa[1] ?? 0, w: wa[2] ?? 0, h: wa[3] ?? 0 }
 	}
 
+	/**
+	 * Group `handle` under `owner` so the session surfaces as one unit in the
+	 * WM's window switcher: WM_TRANSIENT_FOR ties the satellite to the center
+	 * (most WMs then raise them together), and SKIP_TASKBAR/SKIP_PAGER keep the
+	 * satellite out of the taskbar and Alt-Tab lists. Best-effort — EWMH WMs
+	 * honor it, but nothing breaks where they don't.
+	 */
+	function setWindowOwner(handle: WindowHandle, owner: WindowHandle | null): boolean {
+		if (typeof handle !== "number") return false
+		const w = BigInt(handle)
+		if (owner === null) {
+			x.setTransientFor(w, null)
+			x.changeState(w, false, ["_NET_WM_STATE_SKIP_TASKBAR", "_NET_WM_STATE_SKIP_PAGER"])
+			return true
+		}
+		if (typeof owner !== "number") return false
+		x.setTransientFor(w, BigInt(owner))
+		x.changeState(w, true, ["_NET_WM_STATE_SKIP_TASKBAR", "_NET_WM_STATE_SKIP_PAGER"])
+		return true
+	}
+
+	function getWindowOwner(handle: WindowHandle): WindowHandle | null {
+		if (typeof handle !== "number") return null
+		return x.getTransientFor(BigInt(handle))
+	}
+
 	return {
 		caps,
 		listTerminalWindows,
@@ -331,5 +408,7 @@ export function createX11WindowManager(): WindowManager | null {
 		moveWindows,
 		getWorkArea,
 		setWindowHighlight() {},
+		setWindowOwner,
+		getWindowOwner,
 	}
 }

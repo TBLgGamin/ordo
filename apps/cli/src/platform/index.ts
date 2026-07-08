@@ -95,6 +95,14 @@ export function setWindowHighlight(handle: WindowHandle, hex: string | null): vo
 	backends().wm.setWindowHighlight(handle, hex)
 }
 
+export function setWindowOwner(handle: WindowHandle, owner: WindowHandle | null): boolean {
+	return backends().wm.setWindowOwner(handle, owner)
+}
+
+export function getWindowOwner(handle: WindowHandle): WindowHandle | null {
+	return backends().wm.getWindowOwner(handle)
+}
+
 export function spawnWindow(opts: SpawnWindowOptions): Promise<{ handle?: WindowHandle }> {
 	return backends().term.spawnWindow(opts)
 }

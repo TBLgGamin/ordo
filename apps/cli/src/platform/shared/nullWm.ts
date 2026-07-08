@@ -1,6 +1,6 @@
 import type { Rect, WindowHandle, WindowInfo, WindowManager, WmCapabilities } from "../types"
 
-const CAPS: WmCapabilities = { manage: false, focus: false, highlight: false }
+const CAPS: WmCapabilities = { manage: false, focus: false, highlight: false, group: false }
 
 export const nullWindowManager: WindowManager = {
 	caps: CAPS,
@@ -32,4 +32,10 @@ export const nullWindowManager: WindowManager = {
 		return null
 	},
 	setWindowHighlight(): void {},
+	setWindowOwner(): boolean {
+		return false
+	},
+	getWindowOwner(): WindowHandle | null {
+		return null
+	},
 }

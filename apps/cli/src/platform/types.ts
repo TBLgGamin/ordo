@@ -22,6 +22,7 @@ export interface WmCapabilities {
 	manage: boolean
 	focus: boolean
 	highlight: boolean
+	group: boolean
 }
 
 export interface WindowManager {
@@ -36,6 +37,9 @@ export interface WindowManager {
 	moveWindows(items: Array<{ handle: WindowHandle; x: number; y: number }>): boolean
 	getWorkArea(handle: WindowHandle | null): Rect | null
 	setWindowHighlight(handle: WindowHandle, hex: string | null): void
+	setWindowOwner(handle: WindowHandle, owner: WindowHandle | null): boolean
+	/** Current group owner of `handle` (null if free-standing or unsupported). */
+	getWindowOwner(handle: WindowHandle): WindowHandle | null
 }
 
 export interface SpawnWindowOptions {

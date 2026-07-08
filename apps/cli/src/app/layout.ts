@@ -30,12 +30,14 @@ import {
 import {
 	type Direction,
 	getForegroundWindow,
+	getWindowOwner,
 	getWindowRect,
 	getWorkArea,
 	listTerminalWindows,
 	type Rect,
 	setForegroundWindow,
 	setWindowHighlight,
+	setWindowOwner,
 	setWindowRect,
 	setWindowRectAsync,
 	type WindowHandle,
@@ -50,7 +52,12 @@ interface Satellite {
 	dir: Direction
 	/** Highlight color last applied to this window (so we only repaint on change). */
 	appliedHighlight?: string | null
+	/** Consecutive failed attempts to group this window with the center. */
+	groupFailures?: number
 }
+
+/** Stop re-trying to group a window after this many consecutive failures. */
+const MAX_GROUP_ATTEMPTS = 5
 
 export class LayoutManager {
 	private centerHwnd: WindowHandle | null = null
@@ -200,7 +207,9 @@ export class LayoutManager {
 
 	/** Register a satellite window and tile its zone. */
 	add(id: string, handle: WindowHandle, dir: Direction): void {
-		this.sats.set(id, { id, handle, dir })
+		const sat: Satellite = { id, handle, dir }
+		this.sats.set(id, sat)
+		this.groupWithCenter(sat)
 		this.dirty = true
 		this.retile(dir)
 		this.updateFocusHighlight() // a just-spawned pane is usually focused
@@ -211,10 +220,37 @@ export class LayoutManager {
 	 * restoring a session so windows return to precisely where they were.
 	 */
 	addRestored(id: string, handle: WindowHandle, dir: Direction, rect: Rect): void {
-		this.sats.set(id, { id, handle, dir })
+		const sat: Satellite = { id, handle, dir }
+		this.sats.set(id, sat)
+		this.groupWithCenter(sat)
 		this.dirty = true
 		setWindowRect(handle, rect)
 		this.updateFocusHighlight()
+	}
+
+	private groupWithCenter(sat: Satellite): void {
+		if (!wmCaps().group || !this.centerHwnd) return
+		if (setWindowOwner(sat.handle, this.centerHwnd)) {
+			sat.groupFailures = 0
+		} else {
+			sat.groupFailures = (sat.groupFailures ?? 0) + 1
+		}
+	}
+
+	/**
+	 * Verify each satellite is still grouped with the center and re-assert when
+	 * it isn't. Grouping is applied once at add(), but re-owning a window after
+	 * creation is not an officially supported operation — it can silently fail
+	 * while the window is still initializing, or be undone later — so the watch
+	 * tick self-heals it. Windows that keep refusing are left alone after
+	 * MAX_GROUP_ATTEMPTS so an uncooperative WM can't cause a hide/show loop.
+	 */
+	private ensureGrouped(): void {
+		if (!wmCaps().group || !this.centerHwnd) return
+		for (const s of this.sats.values()) {
+			if ((s.groupFailures ?? 0) >= MAX_GROUP_ATTEMPTS) continue
+			if (getWindowOwner(s.handle) !== this.centerHwnd) this.groupWithCenter(s)
+		}
 	}
 
 	/** Forget a satellite (e.g. its window closed) and re-tile its zone. */
@@ -274,6 +310,9 @@ export class LayoutManager {
 			if (!this.centerHwnd) return
 			this.followCenter()
 			this.updateFocusHighlight()
+			// Skip while the center is being dragged: grouping repair can hide/show
+			// a window, which would fight the user's drag; idle ticks catch up.
+			if (!this.centerMoving) this.ensureGrouped()
 			const delay = this.centerMoving ? CENTER_FOLLOW_MS : this.idlePollMs
 			this.watchTimer = setTimeout(tick, delay)
 		}
