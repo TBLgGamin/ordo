@@ -88,6 +88,8 @@ export class LayoutManager {
 	/** Timer handle for the follow-the-center watcher. */
 	private watchTimer?: ReturnType<typeof setTimeout>
 	private centerMoving = false
+	/** Whether the current center interaction changed its size, not just its position. */
+	private centerResizing = false
 	private lastCenterMove = 0
 	private idlePollMs = CENTER_IDLE_POLL_MS
 
@@ -318,9 +320,9 @@ export class LayoutManager {
 	}
 
 	/**
-	 * Start watching the center window. If the user drags or resizes it — even to
-	 * another monitor — adopt the new rect + work area and re-tile all satellites
-	 * so they follow it and stay on the same screen.
+	 * Watch the center window. A drag only updates its persisted position; satellite
+	 * windows remain exactly where they are, including across monitors. A resize
+	 * still updates automatic zones while anchored panes remain untouched.
 	 */
 	watch(intervalMs = CENTER_IDLE_POLL_MS): void {
 		if (!this.centerHwnd) return
@@ -389,6 +391,7 @@ export class LayoutManager {
 		if (this.watchTimer) clearTimeout(this.watchTimer)
 		this.watchTimer = undefined
 		this.centerMoving = false
+		this.centerResizing = false
 		this.clearHighlights()
 	}
 
@@ -409,33 +412,23 @@ export class LayoutManager {
 		const c = this.center
 		const moved = cur.x !== c.x || cur.y !== c.y || cur.w !== c.w || cur.h !== c.h
 		if (moved) {
-			const dx = cur.x - c.x
-			const dy = cur.y - c.y
+			const resized = cur.w !== c.w || cur.h !== c.h
 			this.center = cur
 			this.work = getWorkArea(handle) ?? this.work // may be a different monitor now
 			this.dirty = true
 			this.centerMoving = true
+			this.centerResizing = this.centerResizing || resized
 			this.lastCenterMove = performance.now()
-			// Anchored panes belong to the formation but not its tiling algorithm:
-			// translate them with the center while preserving their exact size and
-			// relative placement. Auto panes continue to reflow into their zones.
-			if (dx !== 0 || dy !== 0) {
-				for (const s of this.sats.values()) {
-					if (!s.anchored) continue
-					const rect = getWindowRect(s.handle) ?? s.observedRect
-					if (!rect) continue
-					const translated = { ...rect, x: rect.x + dx, y: rect.y + dy }
-					setWindowRectAsync(s.handle, translated)
-					s.observedRect = translated
-					s.geometryChangedAt = performance.now()
-				}
-			}
-			this.retileAll(true, true)
+			// Moving the command center is independent: every satellite stays at its
+			// exact screen coordinates, even when the center crosses monitors. Only an
+			// actual center resize changes the automatic zones.
+			if (resized) this.retileAll(true, true)
 			return
 		}
 		if (this.centerMoving && performance.now() - this.lastCenterMove >= CENTER_SETTLE_MS) {
 			this.centerMoving = false
-			this.retileAll(false)
+			if (this.centerResizing) this.retileAll(false)
+			this.centerResizing = false
 		}
 	}
 
