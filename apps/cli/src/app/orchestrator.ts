@@ -273,6 +273,9 @@ export class Orchestrator {
 		this.pendingRestore = state
 		this.restoring = true
 		this.layout.setCenterRect(state.center)
+		// Re-fold into the saved snap region (if any) BEFORE spawning panes, so they
+		// tile into the folded bounds. setCenterRect already placed the folded center.
+		if (state.snap) this.layout.restoreSnap(state.snap)
 		this.log(`opening "${state.id}": ${state.satellites.length} panes`)
 		try {
 			await this.beginSession()
@@ -431,6 +434,7 @@ export class Orchestrator {
 				manualTitle: this.manualTitle,
 				center: snap.center,
 				satellites,
+				snap: snap.snap,
 			})
 			if (comparable === this.lastPersistJson) return
 			this.lastPersistJson = comparable
@@ -441,6 +445,7 @@ export class Orchestrator {
 				updatedAt: new Date().toISOString(),
 				center: snap.center,
 				satellites,
+				snap: snap.snap,
 			})
 		} catch {
 			// best-effort; never let persistence crash the app

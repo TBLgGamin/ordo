@@ -57,6 +57,12 @@ export interface SessionState {
 	updatedAt: string
 	center: Rect
 	satellites: SatelliteState[]
+	/**
+	 * OS-snap the session was folded into when saved ("session as a snap unit").
+	 * `work` is the work area at save time, so restore on a differently-sized
+	 * monitor can rescale the bounds proportionally. Absent when unsnapped.
+	 */
+	snap?: { kind: string; bounds: Rect; work: Rect }
 }
 
 let ordoDirCache: string | null = null
@@ -135,6 +141,12 @@ function isRect(value: unknown): value is Rect {
 	)
 }
 
+function isSnap(value: unknown): value is { kind: string; bounds: Rect; work: Rect } {
+	if (!value || typeof value !== "object") return false
+	const s = value as Record<string, unknown>
+	return typeof s.kind === "string" && isRect(s.bounds) && isRect(s.work)
+}
+
 function isSatellite(value: unknown): value is SatelliteState {
 	if (!value || typeof value !== "object") return false
 	const s = value as Record<string, unknown>
@@ -169,6 +181,7 @@ export function loadSession(name: string): SessionState | null {
 	if (state.manualTitle !== undefined && typeof state.manualTitle !== "boolean") {
 		delete state.manualTitle
 	}
+	if (!isSnap(state.snap)) delete state.snap
 	return state as unknown as SessionState
 }
 

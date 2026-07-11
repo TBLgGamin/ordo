@@ -95,6 +95,20 @@ describe("slotRects", () => {
 			expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1)
 		}
 	})
+
+	test("tiles into a bounds sub-rect stay within those bounds (folded session)", () => {
+		// Fold the session into the left half; tile against `bounds`, clamp to `work`.
+		const bounds: Rect = { x: 0, y: 0, w: 800, h: 1200 }
+		const foldedCenter: Rect = { x: 0, y: 300, w: 480, h: 600 }
+		const rects = slotRects("right", 3, foldedCenter, bounds, 10, work)
+		expect(rects).toHaveLength(3)
+		for (const r of rects) {
+			expect(r.x).toBeGreaterThanOrEqual(bounds.x)
+			expect(r.x + r.w).toBeLessThanOrEqual(bounds.x + bounds.w)
+			expect(r.y).toBeGreaterThanOrEqual(bounds.y)
+			expect(r.y + r.h).toBeLessThanOrEqual(bounds.y + bounds.h)
+		}
+	})
 })
 
 describe("clampToWork", () => {

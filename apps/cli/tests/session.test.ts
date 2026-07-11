@@ -144,6 +144,35 @@ describe("title", () => {
 	})
 })
 
+describe("snap (session as a snap unit)", () => {
+	test("round-trips the snap fold state", () => {
+		const state: SessionState = {
+			...sample("folded"),
+			snap: {
+				kind: "band-left",
+				bounds: { x: 0, y: 0, w: 960, h: 1032 },
+				work: { x: 0, y: 0, w: 1920, h: 1032 },
+			},
+		}
+		saveSession(state)
+		expect(loadSession("folded")?.snap).toEqual(state.snap)
+	})
+
+	test("drops a malformed snap field", () => {
+		writeFileSync(
+			join(sessionsDir(), "badsnap.json"),
+			JSON.stringify({
+				id: "badsnap",
+				updatedAt: "t",
+				center: { x: 0, y: 0, w: 1, h: 1 },
+				satellites: [],
+				snap: { kind: "band-left", bounds: "nope" },
+			}),
+		)
+		expect(loadSession("badsnap")?.snap).toBeUndefined()
+	})
+})
+
 describe("loadSession validation", () => {
 	const writeRaw = (name: string, json: string) => {
 		writeFileSync(join(sessionsDir(), `${name}.json`), json)

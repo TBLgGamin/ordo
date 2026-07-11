@@ -158,6 +158,21 @@ export const CENTER_FOLLOW_MS = numEnv("ORDO_CENTER_FOLLOW", IS_DARWIN ? 150 : 1
 
 export const CENTER_SETTLE_MS = numEnv("ORDO_CENTER_SETTLE", 150, 30, 1000)
 
+/**
+ * Follow OS-native snapping of the command center: when the user snaps the
+ * command window (Windows Snap, macOS tiling, GNOME/KDE half-tiling), re-tile
+ * the whole session into the snapped region ("session as a snap unit"). Set
+ * ORDO_SNAP_FOLLOW=0 to disable and keep ordo owning the full work area.
+ */
+export const SNAP_FOLLOW = (process.env.ORDO_SNAP_FOLLOW ?? "1") !== "0"
+
+/**
+ * Pixel tolerance when classifying the center rect against snap zones. Covers
+ * the Win32 invisible DWM resize frame (~7–8px/edge on a snapped window) and
+ * macOS tiling margins. Bump it if a compositor leaves a larger tiling gap.
+ */
+export const SNAP_TOL_PX = numEnv("ORDO_SNAP_TOL", 16, 0, 200)
+
 /** Highlight color for the focused pane/window (border + title bar). */
 const SELECT_COLOR_DEFAULT = "#d6c9f9"
 function validHex(raw: string | undefined): string {

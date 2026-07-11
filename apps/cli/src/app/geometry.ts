@@ -1,15 +1,22 @@
 import type { Direction, Rect } from "../platform"
 
-const MIN_SLOT_H = 60
+/** Smallest height a tile is allowed to shrink to before it just clamps. */
+export const MIN_SLOT_H = 60
 
 function clampSize(r: Rect): Rect {
 	return { x: r.x, y: r.y, w: Math.max(0, r.w), h: Math.max(0, r.h) }
 }
 
-/** The outer bounds of a zone (before subdividing among its satellites). */
-export function zoneRect(dir: Direction, center: Rect, work: Rect): Rect {
+/**
+ * The outer bounds of a zone (before subdividing among its satellites).
+ *
+ * `bounds` is the region the session tiles inside — normally the full monitor
+ * work area, but a smaller sub-rect when the session is "folded" into a snapped
+ * region (see app/snap.ts). The math is identical either way.
+ */
+export function zoneRect(dir: Direction, center: Rect, bounds: Rect): Rect {
 	const c = center
-	const w = work
+	const w = bounds
 	const right = w.x + w.w
 	const bottom = w.y + w.h
 	switch (dir) {
@@ -39,10 +46,11 @@ export function slotRects(
 	dir: Direction,
 	n: number,
 	center: Rect,
-	work: Rect,
+	bounds: Rect,
 	gap: number,
+	work: Rect = bounds,
 ): Rect[] {
-	const z = zoneRect(dir, center, work)
+	const z = zoneRect(dir, center, bounds)
 	if (z.w <= 0 || z.h <= 0) return []
 	const g = gap
 	const edges: number[] = []
