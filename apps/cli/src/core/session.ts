@@ -36,6 +36,8 @@ export interface SatelliteState {
 	 */
 	foreground?: string
 	rect: Rect
+	/** True once the user has moved or resized this pane independently. */
+	anchored?: boolean
 }
 
 export interface SessionState {
@@ -157,6 +159,11 @@ export function loadSession(name: string): SessionState | null {
 	if (!Array.isArray(state.satellites)) return null
 	if (!isRect(state.center)) return null
 	state.satellites = state.satellites.filter(isSatellite)
+	for (const satellite of state.satellites as SatelliteState[]) {
+		if (satellite.anchored !== undefined && typeof satellite.anchored !== "boolean") {
+			delete satellite.anchored
+		}
+	}
 	if (typeof state.updatedAt !== "string") state.updatedAt = ""
 	if (state.title !== undefined && typeof state.title !== "string") delete state.title
 	if (state.manualTitle !== undefined && typeof state.manualTitle !== "boolean") {

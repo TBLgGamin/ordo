@@ -44,12 +44,17 @@ import {
 	wmCaps,
 } from "../platform"
 import { ZoneAnimator } from "./animator"
-import { slotRects, zoneRect } from "./geometry"
+import { clampToWork, slotRects, zoneRect } from "./geometry"
 
 interface Satellite {
 	id: string
 	handle: WindowHandle
 	dir: Direction
+	anchored: boolean
+	observedRect?: Rect
+	suppressGeometryUntil: number
+	/** Last user/programmatic movement; overflow is clamped once it settles. */
+	geometryChangedAt?: number
 	/** Highlight color last applied to this window (so we only repaint on change). */
 	appliedHighlight?: string | null
 	/** Consecutive failed attempts to group this window with the center. */
@@ -58,6 +63,10 @@ interface Satellite {
 
 /** Stop re-trying to group a window after this many consecutive failures. */
 const MAX_GROUP_ATTEMPTS = 5
+
+function sameRect(a: Rect, b: Rect | undefined): boolean {
+	return !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
+}
 
 export class LayoutManager {
 	private centerHwnd: WindowHandle | null = null
@@ -79,6 +88,8 @@ export class LayoutManager {
 	/** Timer handle for the follow-the-center watcher. */
 	private watchTimer?: ReturnType<typeof setTimeout>
 	private centerMoving = false
+	/** Whether the current center interaction changed its size, not just its position. */
+	private centerResizing = false
 	private lastCenterMove = 0
 	private idlePollMs = CENTER_IDLE_POLL_MS
 
@@ -148,12 +159,16 @@ export class LayoutManager {
 	}
 
 	/** Snapshot the current center + each satellite's on-screen rect. */
-	snapshot(): { center: Rect; sats: Array<{ id: string; dir: Direction; rect: Rect }> } {
+	snapshot(): {
+		center: Rect
+		sats: Array<{ id: string; dir: Direction; rect: Rect; anchored: boolean }>
+	} {
 		return {
 			center: { ...this.center },
 			sats: [...this.sats.values()].map((s) => ({
 				id: s.id,
 				dir: s.dir,
+				anchored: s.anchored,
 				rect: getWindowRect(s.handle) ?? { x: 0, y: 0, w: 0, h: 0 },
 			})),
 		}
@@ -166,7 +181,12 @@ export class LayoutManager {
 	}
 
 	private inZone(dir: Direction): Satellite[] {
-		return [...this.sats.values()].filter((s) => s.dir === dir)
+		return [...this.sats.values()].filter((s) => s.dir === dir && !s.anchored)
+	}
+
+	private suppressGeometry(s: Satellite, duration = this.animMs): void {
+		s.observedRect = undefined
+		s.suppressGeometryUntil = performance.now() + Math.max(50, duration + CENTER_SETTLE_MS)
 	}
 
 	/** Re-tile every satellite in `dir`'s zone to fill it evenly. */
@@ -190,6 +210,7 @@ export class LayoutManager {
 		} else {
 			this.animator.animate(dir, targets, this.animMs)
 		}
+		for (const s of zone) this.suppressGeometry(s, instant ? 0 : this.animMs)
 	}
 
 	/** Force every populated zone to re-tile cleanly against the current center. */
@@ -207,7 +228,7 @@ export class LayoutManager {
 
 	/** Register a satellite window and tile its zone. */
 	add(id: string, handle: WindowHandle, dir: Direction): void {
-		const sat: Satellite = { id, handle, dir }
+		const sat: Satellite = { id, handle, dir, anchored: false, suppressGeometryUntil: 0 }
 		this.sats.set(id, sat)
 		this.groupWithCenter(sat)
 		this.dirty = true
@@ -220,11 +241,12 @@ export class LayoutManager {
 	 * restoring a session so windows return to precisely where they were.
 	 */
 	addRestored(id: string, handle: WindowHandle, dir: Direction, rect: Rect): void {
-		const sat: Satellite = { id, handle, dir }
+		const sat: Satellite = { id, handle, dir, anchored: true, suppressGeometryUntil: 0 }
 		this.sats.set(id, sat)
 		this.groupWithCenter(sat)
 		this.dirty = true
 		setWindowRect(handle, rect)
+		this.suppressGeometry(sat, 0)
 		this.updateFocusHighlight()
 	}
 
@@ -298,9 +320,9 @@ export class LayoutManager {
 	}
 
 	/**
-	 * Start watching the center window. If the user drags or resizes it — even to
-	 * another monitor — adopt the new rect + work area and re-tile all satellites
-	 * so they follow it and stay on the same screen.
+	 * Watch the center window. A drag only updates its persisted position; satellite
+	 * windows remain exactly where they are, including across monitors. A resize
+	 * still updates automatic zones while anchored panes remain untouched.
 	 */
 	watch(intervalMs = CENTER_IDLE_POLL_MS): void {
 		if (!this.centerHwnd) return
@@ -308,6 +330,9 @@ export class LayoutManager {
 		this.idlePollMs = intervalMs
 		const tick = () => {
 			if (!this.centerHwnd) return
+			// Observe manual satellite changes first. Otherwise a center move in the
+			// same tick could re-tile a pane before its new anchor was adopted.
+			this.followSatellites()
 			this.followCenter()
 			this.updateFocusHighlight()
 			// Skip while the center is being dragged: grouping repair can hide/show
@@ -319,11 +344,54 @@ export class LayoutManager {
 		this.watchTimer = setTimeout(tick, intervalMs)
 	}
 
+	/** Release a moved/resized satellite from auto-tiling and adopt its live rect. */
+	private followSatellites(): void {
+		const now = performance.now()
+		for (const s of this.sats.values()) {
+			const cur = getWindowRect(s.handle)
+			if (!cur || cur.w <= 0 || cur.h <= 0) continue
+			if (s.anchored) {
+				if (!sameRect(cur, s.observedRect)) {
+					s.observedRect = cur
+					s.geometryChangedAt = now
+					this.dirty = true
+				} else if (
+					s.geometryChangedAt !== undefined &&
+					now - s.geometryChangedAt >= CENTER_SETTLE_MS
+				) {
+					const work = getWorkArea(s.handle)
+					const bounded = work ? clampToWork(cur, work) : cur
+					if (!sameRect(bounded, cur)) {
+						setWindowRectAsync(s.handle, bounded)
+						s.observedRect = bounded
+						this.dirty = true
+					}
+					s.geometryChangedAt = undefined
+				}
+				continue
+			}
+			if (now < s.suppressGeometryUntil) continue
+			if (!s.observedRect) {
+				s.observedRect = cur
+				continue
+			}
+			if (!sameRect(cur, s.observedRect)) {
+				s.anchored = true
+				s.observedRect = cur
+				s.geometryChangedAt = now
+				this.animator.cancel(s.dir)
+				this.dirty = true
+				this.retile(s.dir)
+			}
+		}
+	}
+
 	unwatch(): void {
 		this.animator.cancelAll()
 		if (this.watchTimer) clearTimeout(this.watchTimer)
 		this.watchTimer = undefined
 		this.centerMoving = false
+		this.centerResizing = false
 		this.clearHighlights()
 	}
 
@@ -344,17 +412,23 @@ export class LayoutManager {
 		const c = this.center
 		const moved = cur.x !== c.x || cur.y !== c.y || cur.w !== c.w || cur.h !== c.h
 		if (moved) {
+			const resized = cur.w !== c.w || cur.h !== c.h
 			this.center = cur
 			this.work = getWorkArea(handle) ?? this.work // may be a different monitor now
 			this.dirty = true
 			this.centerMoving = true
+			this.centerResizing = this.centerResizing || resized
 			this.lastCenterMove = performance.now()
-			this.retileAll(true, true)
+			// Moving the command center is independent: every satellite stays at its
+			// exact screen coordinates, even when the center crosses monitors. Only an
+			// actual center resize changes the automatic zones.
+			if (resized) this.retileAll(true, true)
 			return
 		}
 		if (this.centerMoving && performance.now() - this.lastCenterMove >= CENTER_SETTLE_MS) {
 			this.centerMoving = false
-			this.retileAll(false)
+			if (this.centerResizing) this.retileAll(false)
+			this.centerResizing = false
 		}
 	}
 
