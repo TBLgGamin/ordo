@@ -47,17 +47,19 @@ const sample = (id: string): SessionState => ({
 			lastCommand: "git status",
 			foreground: "vim",
 			rect: { x: 1, y: 2, w: 3, h: 4 },
+			anchored: true,
 		},
 	],
 })
 
 describe("save / load", () => {
-	test("round-trips a session including the foreground field", () => {
+	test("round-trips pane metadata including its anchor", () => {
 		const state = sample("centurion")
 		saveSession(state)
 		const loaded = loadSession("centurion")
 		expect(loaded).toEqual(state)
 		expect(loaded?.satellites[0]?.foreground).toBe("vim")
+		expect(loaded?.satellites[0]?.anchored).toBe(true)
 	})
 
 	test("loadSession returns null for a missing session", () => {

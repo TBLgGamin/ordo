@@ -352,8 +352,9 @@ export class Orchestrator {
 				direction: s.direction,
 				color: s.color,
 				cwd: s.cwd,
-				// Re-tile fresh by direction rather than replaying the saved pixel rect:
-				// panes are auto-placed now and saved rects can be stale/overlapping.
+				// User-positioned panes return to their exact anchor. Untouched panes
+				// remain members of their automatic directional zone.
+				rect: s.anchored ? s.rect : undefined,
 				relaunch: s.foreground, // cold restore: re-open the program that was running
 			})
 			const pane = this.panes.get(s.id) // carry saved metadata forward (daemon will refresh)
@@ -421,6 +422,7 @@ export class Orchestrator {
 					lastCommand: p?.lastCommand,
 					foreground: p?.foreground,
 					rect: s.rect,
+					anchored: s.anchored || undefined,
 				}
 			})
 			const comparable = JSON.stringify({
@@ -733,7 +735,8 @@ export class Orchestrator {
 			const deadline = performance.now() + WINDOW_FIND_TIMEOUT_MS
 			for (let i = 0; !handle && performance.now() < deadline; i++) {
 				handle =
-					this.terminalWindows(WINDOW_ENUM_TTL_MS).find((w) => w.title === wantTitle)?.handle ?? null
+					this.terminalWindows(WINDOW_ENUM_TTL_MS).find((w) => w.title === wantTitle)?.handle ??
+					null
 				if (handle) break
 				await sleep(Math.min(WINDOW_POLL_STEP_MS * (i + 1), WINDOW_POLL_MAX_MS))
 			}
