@@ -1,25 +1,23 @@
 ---
 import SectionHeading from "@/components/SectionHeading.astro"
-import ProductShot from "@/components/ProductShot.astro"
+import MediaPanel from "@/components/MediaPanel.astro"
 ---
 
-<section id="cli" class="overflow-hidden bg-hero px-6 py-24 sm:px-8">
-	<div class="mx-auto w-full max-w-[88rem]">
-		<div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-			<div>
-				<SectionHeading eyebrow="cli" title="Scriptable down to the last pane.">
-					<p>
-						The launcher is optional. Every capability is a plain subcommand you can call from
-						any shell, pipe into scripts, or hand to CI, with tab completion for PowerShell,
-						bash, and zsh.
-					</p>
-				</SectionHeading>
-			</div>
-			<ProductShot
-				src="/product/launcher-cli.png"
-				alt="Ordo launcher TUI showing saved sessions and live log input."
-				class="-mx-6 sm:mx-0 lg:w-[118%] lg:max-w-none"
-			/>
+<section id="cli" class="scroll-mt-16 overflow-x-clip py-20 sm:py-28">
+	<div class="mx-auto grid w-full max-w-[1680px] grid-cols-[minmax(0,1fr)] items-center gap-10 px-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-14 lg:px-12">
+		<div data-reveal>
+			<SectionHeading title="Scriptable down" accent="to the last pane.">
+				<p>
+					The launcher is optional. Every capability is a plain subcommand you can call from
+					any shell, pipe into scripts, or hand to CI, with tab completion for PowerShell,
+					bash, and zsh.
+				</p>
+			</SectionHeading>
 		</div>
+		<MediaPanel
+			data-reveal
+			src="/product/launcher-cli.png"
+			alt="Ordo's command center showing the sessions sidebar and activity log."
+		/>
 	</div>
 </section>

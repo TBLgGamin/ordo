@@ -1,9 +1,21 @@
 ---
+import Logo from "@/components/Logo.astro"
+
+const links = [
+	{ href: "/docs", label: "Docs" },
+	{ href: "/#install", label: "Install" },
+	{ href: "https://github.com/TBLgGamin/ordo", label: "GitHub" },
+]
 ---
 
-<footer class="bg-hero">
-	<div class="mx-auto flex w-full max-w-[88rem] flex-col items-center gap-5 px-6 py-16 sm:px-8">
-		<img src="/brand/ordo-mark.png" alt="ordo" class="h-9 w-9 object-contain dark:invert" loading="lazy" decoding="async" />
-		<p class="text-sm font-medium uppercase tracking-[0.4em] text-stone">Your terminal, in formation</p>
+<footer class="border-t border-border">
+	<div class="mx-auto flex w-full max-w-[1680px] flex-col items-center gap-6 px-6 py-16 lg:px-12">
+		<Logo variant="symbol" class="size-10" />
+		<p class="text-sm text-muted-foreground">Your terminal, in formation.</p>
+		<nav class="flex gap-6 text-sm text-muted-foreground" aria-label="Footer">
+			{links.map((link) => (
+				<a href={link.href} class="transition-colors hover:text-foreground">{link.label}</a>
+			))}
+		</nav>
 	</div>
 </footer>

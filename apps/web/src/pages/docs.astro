@@ -274,17 +274,17 @@ const agentNames = [
 	description="A clean reference for every ordo command, with syntax, options, examples and plain explanations."
 >
 	<Header />
-	<main class="bg-hero">
-		<div class="mx-auto grid w-full max-w-[88rem] gap-10 px-6 py-10 sm:px-8 lg:grid-cols-[16rem_minmax(0,1fr)] lg:py-14">
+	<main id="main">
+		<div class="mx-auto grid w-full max-w-[1680px] gap-10 px-6 py-10 lg:grid-cols-[16rem_minmax(0,1fr)] lg:px-12 lg:py-14">
 			<aside class="hidden lg:block">
 				<nav class="sticky top-24 max-h-[calc(100dvh-7rem)] overflow-y-auto pr-6 text-sm">
 					{nav.map((group) => (
 						<div class="mb-8">
-							<p class="text-xs font-medium uppercase tracking-[0.25em] text-stone">{group.title}</p>
+							<p class="text-sm font-semibold">{group.title}</p>
 							<ul class="mt-3 space-y-2">
 								{group.items.map((item) => (
 									<li>
-										<a href={item.href} class="text-stone transition-colors hover:text-ink">
+										<a href={item.href} class="text-muted-foreground transition-colors hover:text-foreground">
 											{item.label}
 										</a>
 									</li>
@@ -296,32 +296,31 @@ const agentNames = [
 			</aside>
 
 			<div class="min-w-0 max-w-full overflow-hidden">
-				<section id="session-selection" class="scroll-mt-24 border-b border-ink/10 pb-12">
-					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">routing</p>
-					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+				<section id="session-selection" class="scroll-mt-24 border-b pb-12">
+					<h2 class="text-4xl font-bold tracking-tight">
 						How pane commands choose a session
 					</h2>
-					<p class="mt-5 max-w-3xl text-base leading-relaxed text-stone">
+					<p class="mt-5 max-w-3xl text-base leading-relaxed text-muted-foreground">
 						Commands that work with panes need a room. ordo takes the most explicit answer
 						first, then falls back to what is already running. If nothing is running, it can
 						create the room before running the command.
 					</p>
 					<div class="mt-8 grid gap-6 md:grid-cols-3">
 						<div>
-							<p class="font-mono text-sm text-arch-ink dark:text-arch">--session &lt;id&gt;</p>
-							<p class="mt-2 text-sm leading-relaxed text-stone">
+							<p class="font-mono text-sm text-ring">--session &lt;id&gt;</p>
+							<p class="mt-2 text-sm leading-relaxed text-muted-foreground">
 								Use the session you named. Best for scripts and repeatable commands.
 							</p>
 						</div>
 						<div>
-							<p class="font-mono text-sm text-arch-ink dark:text-arch">ORDO_SESSION</p>
-							<p class="mt-2 text-sm leading-relaxed text-stone">
+							<p class="font-mono text-sm text-ring">ORDO_SESSION</p>
+							<p class="mt-2 text-sm leading-relaxed text-muted-foreground">
 								Inside an ordo pane, the session is already known.
 							</p>
 						</div>
 						<div>
-							<p class="font-mono text-sm text-arch-ink dark:text-arch">one live room</p>
-							<p class="mt-2 text-sm leading-relaxed text-stone">
+							<p class="font-mono text-sm text-ring">one live room</p>
+							<p class="mt-2 text-sm leading-relaxed text-muted-foreground">
 								If only one session is live, ordo uses it. If none is live, it starts one.
 							</p>
 						</div>
@@ -329,8 +328,7 @@ const agentNames = [
 				</section>
 
 				<section class="py-12">
-					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">sessions</p>
-					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+					<h2 class="text-4xl font-bold tracking-tight">
 						Rooms and saved work
 					</h2>
 					<div class="mt-10">
@@ -339,8 +337,7 @@ const agentNames = [
 				</section>
 
 				<section class="py-12">
-					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">panes</p>
-					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+					<h2 class="text-4xl font-bold tracking-tight">
 						Panes, agents and messages
 					</h2>
 					<div class="mt-10">
@@ -348,18 +345,17 @@ const agentNames = [
 					</div>
 				</section>
 
-				<section id="agents" class="scroll-mt-24 border-t border-ink/10 py-12">
-					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">agents</p>
-					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+				<section id="agents" class="scroll-mt-24 border-t py-12">
+					<h2 class="text-4xl font-bold tracking-tight">
 						Supported --agent names
 					</h2>
-					<p class="mt-5 max-w-3xl text-base leading-relaxed text-stone">
-						Pass one of these to <span class="font-mono text-ink">ordo spawn --agent</span>.
+					<p class="mt-5 max-w-3xl text-base leading-relaxed text-muted-foreground">
+						Pass one of these to <code class="font-mono text-foreground">ordo spawn --agent</code>.
 						ordo starts it in a pane and gives it the MCP tools automatically.
 					</p>
 					<div class="mt-8 flex flex-wrap gap-2">
 						{agentNames.map((agent) => (
-							<span class="rounded-md border border-ink/10 px-3 py-1.5 font-mono text-sm text-ink">
+							<span class="rounded-md border px-3 py-1.5 font-mono text-sm">
 								{agent}
 							</span>
 						))}
@@ -367,8 +363,7 @@ const agentNames = [
 				</section>
 
 				<section class="py-12">
-					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">other</p>
-					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+					<h2 class="text-4xl font-bold tracking-tight">
 						Setup and help
 					</h2>
 					<div class="mt-10">
@@ -377,11 +372,10 @@ const agentNames = [
 				</section>
 
 				<section id="internal" class="scroll-mt-24 py-12">
-					<p class="text-xs font-medium uppercase tracking-[0.3em] text-stone">internals</p>
-					<h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-ink">
+					<h2 class="text-4xl font-bold tracking-tight">
 						Real commands, not normal commands
 					</h2>
-					<p class="mt-5 max-w-3xl text-base leading-relaxed text-stone">
+					<p class="mt-5 max-w-3xl text-base leading-relaxed text-muted-foreground">
 						These exist in the CLI because ordo needs them for agents, completion and
 						window launch. You may see them in configs or process lists, but the public
 						commands are what you type.

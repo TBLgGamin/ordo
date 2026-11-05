@@ -1,0 +1,16 @@
+---
+// Brand kit rule: light files on light surfaces, -dark files (lavender pane, thinned ring) on dark.
+interface Props {
+	variant?: "wordmark" | "symbol"
+	class?: string
+	alt?: string
+	loading?: "eager" | "lazy"
+}
+
+const { variant = "wordmark", class: className, alt = "ordo", loading = "lazy" } = Astro.props
+const base = variant === "wordmark" ? "/brand/ordo-wordmark" : "/brand/ordo-symbol-duo"
+const size = variant === "wordmark" ? { width: 474, height: 180 } : { width: 256, height: 256 }
+---
+
+<img src={`${base}.svg`} alt={alt} {...size} loading={loading} decoding="async" class:list={["h-auto dark:hidden", className]} />
+<img src={`${base}-dark.svg`} alt={alt} {...size} loading={loading} decoding="async" class:list={["hidden h-auto dark:block", className]} />

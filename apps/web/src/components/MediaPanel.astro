@@ -1,0 +1,16 @@
+---
+import ProductShot from "@/components/ProductShot.astro"
+
+interface Props {
+	src: string
+	alt: string
+	loading?: "eager" | "lazy"
+	class?: string
+}
+
+const { src, alt, loading, class: className, ...rest } = Astro.props
+---
+
+<div {...rest} class:list={["-mx-6 bg-muted p-6 dark:bg-card sm:mx-0 sm:rounded-2xl sm:p-10 lg:rounded-r-none lg:bleed-r lg:pr-12", className]}>
+	<ProductShot src={src} alt={alt} loading={loading} class="max-w-[60rem]" imageClass="select-none" />
+</div>

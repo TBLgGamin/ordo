@@ -1,84 +1,36 @@
 ---
 import { Button } from "@/components/ui/button"
-import DotField from "@/components/DotField.vue"
 import InstallTerminal from "@/components/InstallTerminal.astro"
-import ProductShot from "@/components/ProductShot.astro"
+import MediaPanel from "@/components/MediaPanel.astro"
 ---
 
-<section id="top" class="relative flex min-h-[calc(100dvh-4rem)] items-center overflow-hidden bg-hero">
-	<div class="pointer-events-none absolute inset-y-0 right-0 z-0 hidden w-1/2 items-center justify-center lg:flex">
-		<div class="absolute bottom-0 left-1/2 h-[82%] w-[380px] -translate-x-1/2 rounded-t-full bg-arch"></div>
-		<DotField
-			client:idle
-			class="absolute top-[9%] left-1/2 z-10 h-24 w-32 -translate-x-1/2"
-			shapes={["circle", "ring", "diamond"]}
-			morph="random"
-			color="#4a3f7a"
-			opacity={0.85}
-		/>
-		<DotField
-			client:idle
-			class="absolute top-[16%] left-[10%] h-28 w-24"
-			shapes={["rect", "cross", "triangle"]}
-			morph="random"
-			opacity={0.95}
-		/>
-		<DotField
-			client:idle
-			class="absolute top-[30%] right-[7%] h-28 w-24"
-			shapes={["diamond", "circle", "ring"]}
-			morph="random"
-			opacity={0.95}
-		/>
-		<DotField
-			client:idle
-			class="absolute bottom-[9%] left-[12%] h-20 w-24"
-			shapes={["circle", "ring", "diamond"]}
-			morph="random"
-			opacity={0.9}
-		/>
-		<DotField
-			client:idle
-			class="absolute right-[9%] bottom-[11%] h-20 w-24"
-			shapes={["cross", "diamond", "circle"]}
-			morph="random"
-			opacity={0.9}
-		/>
-		<ProductShot
-			src="/product/hero-formation.png"
-			alt=""
-			loading="eager"
-			class="relative w-[52rem] max-w-[118%]"
-			imageClass="select-none"
-		/>
-	</div>
-
-	<div class="relative z-10 mx-auto w-full max-w-[88rem] px-6 sm:px-8">
-		<div class="max-w-xl py-16 lg:py-10">
-			<h1 class="text-5xl leading-[1.05] font-semibold tracking-tight text-ink sm:text-6xl lg:text-7xl">
-				Bring order to
-				<br />
-				your terminal
+<section id="top" class="overflow-x-clip">
+	<div class="mx-auto grid min-h-[calc(100svh-4rem)] w-full max-w-[1680px] grid-cols-[minmax(0,1fr)] items-center gap-12 px-6 py-16 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-14 lg:px-12 lg:py-10">
+		<div class="max-w-xl">
+			<h1 class="text-5xl font-bold tracking-tighter sm:text-7xl">
+				<span class="reveal-line"><span>Bring order to</span></span>
+				<span class="reveal-line"><span class="text-ring" style="--delay: 90ms">your terminal.</span></span>
 			</h1>
-			<p class="mt-7 max-w-md text-lg leading-relaxed text-stone">
+			<p class="mt-6 max-w-md text-base leading-relaxed text-muted-foreground sm:text-lg" data-rise style="--delay: 250ms">
 				ordo is a tiling terminal multiplexer for Windows, macOS, and Linux. It arranges your
 				shells around you in real windows and keeps every one alive in a daemon that outlives
 				them. When a pane runs an AI agent, ordo wires it in over MCP so your agents can work
 				as a team.
 			</p>
-			<div class="mt-9 max-w-lg">
+			<div class="mt-8 max-w-lg" data-rise style="--delay: 340ms">
 				<InstallTerminal />
 			</div>
-			<div class="mt-6 flex flex-wrap items-center gap-3">
-				<Button size="lg" as="a" href="#install" class="rounded-lg px-5">Get started</Button>
-				<Button variant="outline" size="lg" as="a" href="/docs" class="rounded-lg px-5">Read the docs</Button>
-				<Button variant="ghost" size="lg" as="a" href="https://github.com/TBLgGamin/ordo" class="rounded-lg px-5 text-stone hover:text-ink">
-					View on GitHub
-				</Button>
+			<div class="mt-5 flex flex-wrap items-center gap-3" data-rise style="--delay: 430ms">
+				<Button size="lg" as="a" href="#install">Get started</Button>
+				<Button variant="ghost" size="lg" as="a" href="/docs">Read the docs</Button>
+				<Button variant="ghost" size="lg" as="a" href="https://github.com/TBLgGamin/ordo">View on GitHub</Button>
 			</div>
-			<p class="mt-8 text-xs tracking-wide text-stone">
-				free &amp; open source &middot; one command install &middot; no cloud required &middot; any terminal &middot; Bun
+			<p class="mt-8 text-sm text-muted-foreground" data-rise style="--delay: 520ms">
+				Free and open source &middot; one-command install &middot; no cloud &middot; any terminal
 			</p>
+		</div>
+		<div class="hidden lg:block" data-rise style="--delay: 200ms">
+			<MediaPanel src="/product/hero-formation.png" alt="" loading="eager" />
 		</div>
 	</div>
 </section>

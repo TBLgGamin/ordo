@@ -1,5 +1,4 @@
 ---
-import DotField from "@/components/DotField.vue"
 import SectionHeading from "@/components/SectionHeading.astro"
 
 const features = [
@@ -36,45 +35,35 @@ const features = [
 ]
 ---
 
-<section id="features" class="relative overflow-hidden bg-hero px-6 py-24 sm:px-8">
-	<DotField
-		client:visible
-		class="absolute top-16 right-[6%] hidden h-24 w-28 lg:block"
-		shapes={["rect", "circle", "triangle"]}
-		morph="random"
-		opacity={0.9}
-	/>
-	<DotField
-		client:visible
-		class="absolute bottom-16 left-[4%] hidden h-20 w-24 lg:block"
-		shapes={["diamond", "circle", "ring"]}
-		morph="random"
-		opacity={0.85}
-	/>
-	<div class="relative mx-auto w-full max-w-[88rem]">
-		<SectionHeading eyebrow="features" title="A command center, not another tab bar.">
-			<p>
-				Other multiplexers hide your shells in splits and tabs. ordo gives every shell a real
-				window, arranged around you like a formation. Visible, addressable, disposable.
-			</p>
-		</SectionHeading>
+<section id="features" class="scroll-mt-16 py-20 sm:py-28">
+	<div class="mx-auto w-full max-w-[1680px] px-6 lg:px-12">
+		<div data-reveal>
+			<SectionHeading title="A command center," accent="not another tab bar.">
+				<p>
+					Other multiplexers hide your shells in splits and tabs. ordo gives every shell a real
+					window, arranged around you like a formation. Visible, addressable, disposable.
+				</p>
+			</SectionHeading>
+		</div>
 
-		<div class="mt-16 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+		<div class="mt-16 grid gap-x-12 gap-y-12 sm:grid-cols-2 lg:grid-cols-3" data-reveal>
 			{features.map((feature) => (
-				<div class="flex flex-col gap-2.5">
+				<div class="flex flex-col gap-3">
 					<svg
-						class="size-5 text-arch-ink dark:text-arch"
+						class="size-6 text-ring"
 						viewBox="0 0 24 24"
 						fill="none"
 						stroke="currentColor"
-						stroke-width="1.5"
+						stroke-width="1.75"
 						stroke-linecap="round"
 						stroke-linejoin="round"
 						aria-hidden="true"
 						set:html={feature.icon}
 					/>
-					<h3 class="text-base font-semibold text-ink">{feature.title}</h3>
-					<p class="max-w-xs text-sm leading-relaxed text-stone">{feature.description}</p>
+					<div>
+						<h3 class="font-semibold">{feature.title}</h3>
+						<p class="mt-1 max-w-xs text-sm leading-relaxed text-muted-foreground">{feature.description}</p>
+					</div>
 				</div>
 			))}
 		</div>

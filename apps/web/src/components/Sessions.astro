@@ -1,6 +1,6 @@
 ---
 import SectionHeading from "@/components/SectionHeading.astro"
-import ProductShot from "@/components/ProductShot.astro"
+import MediaPanel from "@/components/MediaPanel.astro"
 
 const points = [
 	{
@@ -21,35 +21,31 @@ const points = [
 ]
 ---
 
-<section id="sessions" class="overflow-hidden bg-hero px-6 py-24 sm:px-8">
-	<div class="mx-auto w-full max-w-[88rem]">
-		<div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-			<div class="flex items-center lg:order-2">
-				<ProductShot
-					src="/product/session-restore.png"
-					alt="Ordo restoring a saved terminal session with the command center and four tiled terminal panes reattached."
-					class="-mx-6 sm:mx-0 lg:w-[118%] lg:max-w-none"
-				/>
-			</div>
-			<div class="lg:order-1">
-				<SectionHeading eyebrow="persistence" title="Close everything. Lose nothing.">
-					<p>
-						Your shells do not live in the windows. They live in a hidden daemon that keeps
-						running after every window is gone. A closed window is just a detached one.
-					</p>
-				</SectionHeading>
-				<dl class="mt-10 flex flex-col gap-8">
-					{points.map((point) => (
-						<div class="flex gap-5">
-							<span class="text-2xl leading-none font-semibold text-arch-ink dark:text-arch">{point.step}</span>
-							<div>
-								<dt class="font-medium text-ink">{point.title}</dt>
-								<dd class="mt-1.5 max-w-md text-sm leading-relaxed text-stone">{point.description}</dd>
-							</div>
+<section id="sessions" class="scroll-mt-16 overflow-x-clip py-20 sm:py-28">
+	<div class="mx-auto grid w-full max-w-[1680px] grid-cols-[minmax(0,1fr)] items-center gap-10 px-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-14 lg:px-12">
+		<div data-reveal>
+			<SectionHeading title="Close everything." accent="Lose nothing.">
+				<p>
+					Your shells do not live in the windows. They live in a hidden daemon that keeps
+					running after every window is gone. A closed window is just a detached one.
+				</p>
+			</SectionHeading>
+			<dl class="mt-10 flex flex-col gap-8">
+				{points.map((point) => (
+					<div class="flex gap-5">
+						<span class="w-8 shrink-0 text-xl leading-6 font-bold tabular-nums text-ring">{point.step}</span>
+						<div>
+							<dt class="font-semibold">{point.title}</dt>
+							<dd class="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">{point.description}</dd>
 						</div>
-					))}
-				</dl>
-			</div>
+					</div>
+				))}
+			</dl>
 		</div>
+		<MediaPanel
+			data-reveal
+			src="/product/session-restore.png"
+			alt="Ordo's command center with a saved session, its panes and their statuses, ready to reopen."
+		/>
 	</div>
 </section>

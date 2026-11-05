@@ -1,33 +1,29 @@
 ---
 import SectionHeading from "@/components/SectionHeading.astro"
-import ProductShot from "@/components/ProductShot.astro"
+import MediaPanel from "@/components/MediaPanel.astro"
 ---
 
-<section id="orchestration" class="overflow-hidden bg-hero px-6 py-24 sm:px-8">
-	<div class="mx-auto w-full max-w-[88rem]">
-		<div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-			<div class="flex flex-col gap-8">
-				<SectionHeading eyebrow="agents" title="Your terminal, with a chain of command.">
-					<p>
-						ordo is a first-class home for AI agent CLIs. On startup it writes its MCP server
-						into the config of every agent it finds, with zero setup. From that moment each
-						agent has a call sign and a radio: it can discover its peers, delegate work, read
-						their screens, interrupt them, and spawn reinforcements into new panes.
-					</p>
-				</SectionHeading>
-				<p class="max-w-xl text-base leading-relaxed text-stone">
-					Not into hands-off delegation? Everything an agent can do, you can do from your own
-					shell with the <span class="font-mono text-ink">ordo</span> CLI, or watch it all
-					scroll by in the command center.
+<section id="orchestration" class="scroll-mt-16 overflow-x-clip py-20 sm:py-28">
+	<div class="mx-auto grid w-full max-w-[1680px] grid-cols-[minmax(0,1fr)] items-center gap-10 px-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-14 lg:px-12">
+		<div class="flex flex-col gap-8" data-reveal>
+			<SectionHeading title="Your terminal, with" accent="a chain of command.">
+				<p>
+					ordo is a first-class home for AI agent CLIs. On startup it writes its MCP server
+					into the config of every agent it finds, with zero setup. From that moment each
+					agent has a call sign and a radio: it can discover its peers, delegate work, read
+					their screens, interrupt them, and spawn reinforcements into new panes.
 				</p>
-			</div>
-			<div class="flex items-center">
-				<ProductShot
-					src="/product/agent-communication.png"
-					alt="Two Claude Code agent panes communicating through Ordo around the central command center."
-					class="-mx-6 sm:mx-0 lg:w-[118%] lg:max-w-none"
-				/>
-			</div>
+			</SectionHeading>
+			<p class="max-w-xl text-base leading-relaxed text-muted-foreground">
+				Not into hands-off delegation? Everything an agent can do, you can do from your own
+				shell with the <code class="font-mono text-foreground">ordo</code> CLI, or watch it all
+				scroll by in the command center.
+			</p>
 		</div>
+		<MediaPanel
+			data-reveal
+			src="/product/agent-communication.png"
+			alt="Three Claude Code agent panes tiled around ordo's command center, coordinating a release through ordo's agent tools."
+		/>
 	</div>
 </section>

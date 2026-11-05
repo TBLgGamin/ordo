@@ -1,4 +1,9 @@
-# ordo
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/web/public/brand/ordo-wordmark-dark.svg">
+    <img src="apps/web/public/brand/ordo-wordmark.svg" alt="ordo" width="240">
+  </picture>
+</h1>
 
 > Your terminal, in formation.
 
@@ -11,7 +16,7 @@ panes.
 Website and docs: [ordo.wena.one](https://ordo.wena.one).
 
 <p align="center">
-  <img src="apps/web/public/product/hero-formation.png" alt="Ordo tiling several terminal panes around a command center" width="100%">
+  <img src="apps/web/public/product/hero-formation.png" alt="Ordo tiling four terminal panes around its command center" width="100%">
 </p>
 
 ## Why ordo exists
@@ -187,7 +192,7 @@ Agent panes can talk through ordo while the command center keeps the session
 visible.
 
 <p align="center">
-  <img src="apps/web/public/product/agent-communication.png" alt="Two Claude Code agents communicating through Ordo" width="100%">
+  <img src="apps/web/public/product/agent-communication.png" alt="Three Claude Code agent panes tiled around ordo's command center, coordinating through ordo's agent tools" width="100%">
 </p>
 
 ### Restore
@@ -196,7 +201,7 @@ Sessions can come back with their pane formation, working directories, and
 recent terminal state.
 
 <p align="center">
-  <img src="apps/web/public/product/session-restore.png" alt="Ordo restoring a saved terminal session" width="100%">
+  <img src="apps/web/public/product/session-restore.png" alt="Ordo's command center with a saved session and its panes ready to reopen" width="100%">
 </p>
 
 ## Configuration

@@ -20,11 +20,11 @@ async function copyText() {
 <template>
 	<button
 		type="button"
-		class="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 [&_svg]:size-4"
+		class="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 outline-none [&_svg]:size-4"
 		:aria-label="copied ? 'Copied' : 'Copy command'"
 		@click="copyText"
 	>
-		<Check v-if="copied" class="text-arch" />
+		<Check v-if="copied" class="text-ring" />
 		<Copy v-else />
 	</button>
 </template>

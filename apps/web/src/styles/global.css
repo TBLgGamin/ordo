@@ -1,22 +1,10 @@
 @import "tailwindcss";
-@import "@fontsource-variable/outfit";
+@import "@fontsource-variable/space-grotesk";
 
 @custom-variant dark (&:is(.dark *));
 
-@theme {
-	--color-hero: #f1f1f2;
-	--color-pine: #18181b;
-	--color-pine-deep: #09090b;
-	--color-ink: #18181b;
-	--color-arch: #d3c7f6;
-	--color-arch-ink: #4a3f7a;
-	--color-demo: #e4e4e7;
-	--color-stone: #52525b;
-	--color-dot: #8e8e99;
-}
-
 @theme inline {
-	--font-sans: "Outfit Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-sans: "Space Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
 	--font-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
 	--color-ring: var(--ring);
 	--color-input: var(--input);
@@ -36,16 +24,15 @@
 	--color-card: var(--card);
 	--color-foreground: var(--foreground);
 	--color-background: var(--background);
-	--radius-sm: calc(var(--radius) * 0.6);
-	--radius-md: calc(var(--radius) * 0.8);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) * 1.4);
-	--radius-2xl: calc(var(--radius) * 1.8);
-	--radius-3xl: calc(var(--radius) * 2.2);
-	--radius-4xl: calc(var(--radius) * 2.6);
+	--radius-xl: calc(var(--radius) + 4px);
 }
 
+/* Shared mtgfmax / pokeum tokens: neutral greys plus the violet --ring (hue 297.347). */
 :root {
+	--radius: 0.625rem;
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.145 0 0);
 	--card: oklch(1 0 0);
@@ -63,8 +50,7 @@
 	--destructive: oklch(0.577 0.245 27.325);
 	--border: oklch(0.922 0 0);
 	--input: oklch(0.922 0 0);
-	--ring: oklch(0.708 0 0);
-	--radius: 0.625rem;
+	--ring: oklch(0.5 0.16 297.347);
 }
 
 .dark {
@@ -85,13 +71,7 @@
 	--destructive: oklch(0.704 0.191 22.216);
 	--border: oklch(1 0 0 / 10%);
 	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.556 0 0);
-
-	--color-hero: #101013;
-	--color-ink: #f4f4f5;
-	--color-stone: #a1a1aa;
-	--color-demo: #27272a;
-	--color-dot: #a1a1aa;
+	--ring: oklch(0.862 0.067 297.347);
 }
 
 @layer base {
@@ -99,16 +79,34 @@
 		@apply border-border outline-ring/50;
 	}
 	html {
-		@apply font-sans;
+		@apply bg-background font-sans;
 		scroll-behavior: smooth;
+		scrollbar-width: thin;
+		scrollbar-color: var(--border) transparent;
 	}
 	body {
-		@apply bg-hero text-foreground antialiased;
+		@apply min-w-80 overflow-x-clip bg-background text-foreground antialiased;
 	}
 	::selection {
-		background: var(--color-arch);
-		color: var(--color-pine);
+		background-color: color-mix(in oklab, var(--ring) 30%, transparent);
 	}
+	::-webkit-scrollbar {
+		width: 6px;
+		height: 6px;
+	}
+	::-webkit-scrollbar-thumb {
+		background: var(--border);
+		border-radius: 3px;
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--muted-foreground);
+	}
+}
+
+/* Media panels in split sections run off the right edge of the viewport. Mirrors the
+   max-w-[1680px] px-12 page container used on lg+. */
+@utility bleed-r {
+	margin-right: calc(-1 * max(3rem, (100vw - 1680px) / 2 + 3rem));
 }
 
 .terminal-code .terminal-highlight,
@@ -130,6 +128,14 @@
 	white-space: pre;
 }
 
+.terminal-highlight span {
+	color: var(--shiki-light);
+}
+
+.dark .terminal-highlight span {
+	color: var(--shiki-dark);
+}
+
 @keyframes logo-marquee {
 	from {
 		transform: translateX(-50%);
@@ -147,7 +153,69 @@
 	animation-play-state: paused;
 }
 
+/* Headline lines rise out of a mask; supporting elements rise and fade in after them.
+   Scroll-revealed elements only hide once the reveal script has marked <html> with .motion,
+   so the page stays fully visible without JavaScript. */
+@keyframes line-in {
+	from {
+		transform: translateY(110%);
+	}
+	to {
+		transform: translateY(0);
+	}
+}
+
+@keyframes rise-in {
+	from {
+		opacity: 0;
+		transform: translateY(14px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.reveal-line {
+	display: block;
+	overflow: hidden;
+	padding-bottom: 0.08em;
+	margin-bottom: -0.08em;
+}
+
+.reveal-line > span {
+	display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.reveal-line > span {
+		animation: line-in 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+		animation-delay: var(--delay, 0ms);
+	}
+
+	[data-rise] {
+		animation: rise-in 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
+		animation-delay: var(--delay, 0ms);
+	}
+
+	.motion [data-reveal] {
+		opacity: 0;
+		transform: translateY(14px);
+		transition:
+			opacity 0.85s cubic-bezier(0.16, 1, 0.3, 1),
+			transform 0.85s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.motion [data-reveal].is-in {
+		opacity: 1;
+		transform: none;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
 	.logo-marquee {
 		animation: none;
 		width: 100%;
@@ -160,38 +228,5 @@
 	}
 	.logo-marquee ul[aria-hidden="true"] {
 		display: none;
-	}
-}
-
-.bento-tile {
-	position: absolute;
-	z-index: 0;
-	overflow: hidden;
-	will-change: top, left, width, height;
-	transition:
-		top 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-		left 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-		width 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-		height 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-		z-index 0s linear 0.6s;
-}
-
-.bento-tile:hover {
-	top: 0 !important;
-	left: 0 !important;
-	width: 100% !important;
-	height: 100% !important;
-	z-index: 10;
-	transition:
-		top 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-		left 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-		width 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-		height 0.6s cubic-bezier(0.76, 0, 0.24, 1),
-		z-index 0s linear 0s;
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.bento-tile {
-		transition: none;
 	}
 }
