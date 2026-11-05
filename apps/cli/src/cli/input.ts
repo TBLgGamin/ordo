@@ -25,6 +25,7 @@ export type InputAction =
 	| { type: "new" }
 	| { type: "add" }
 	| { type: "close" }
+	| { type: "toggleLog" }
 	| { type: "open"; id: string }
 	| { type: "delete"; id: string }
 	| { type: "rename"; title: string }
@@ -99,6 +100,7 @@ export function handleKey(state: InputState, key: KeyLike): InputResult {
 	if (key.sequence === "a") return keep(state, { type: "add" })
 	if (key.sequence === "s") return keep({ ...state, mode: "open", buffer: "" }, { type: "redraw" })
 	if (key.sequence === "c") return keep(state, { type: "close" })
+	if (key.sequence === "v") return keep(state, { type: "toggleLog" })
 	if (key.sequence === "r") {
 		if (!state.hasSession) return keep(state, { type: "status", message: "· no session to rename" })
 		return keep({ ...state, mode: "rename", buffer: "" }, { type: "redraw" })

@@ -410,5 +410,6 @@ export function createX11WindowManager(): WindowManager | null {
 		setWindowHighlight() {},
 		setWindowOwner,
 		getWindowOwner,
+		restoreWindow: setForegroundWindow,
 	}
 }

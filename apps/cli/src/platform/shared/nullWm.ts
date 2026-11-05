@@ -38,4 +38,7 @@ export const nullWindowManager: WindowManager = {
 	getWindowOwner(): WindowHandle | null {
 		return null
 	},
+	restoreWindow(): boolean {
+		return false
+	},
 }

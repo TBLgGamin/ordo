@@ -201,6 +201,11 @@ export class Orchestrator {
 		return this.sessionId !== ""
 	}
 
+	/** Snapshot of the current session's panes, for the command center's overview. */
+	get paneList(): ManagedPane[] {
+		return [...this.panes.values()]
+	}
+
 	/** Connect to (or start) the daemon for the current session, and begin persisting. */
 	private async beginSession(): Promise<void> {
 		this.layout.watch() // follow the center if the user drags/moves it
@@ -228,9 +233,14 @@ export class Orchestrator {
 		if (!this.hasSession) return
 		const oldIds = [...this.panes.keys()]
 		this.closeSession()
+		await this.waitForWindowsGone(oldIds)
+	}
+
+	/** Poll (bounded) until none of `ids` names a live terminal window. */
+	private async waitForWindowsGone(ids: string[]): Promise<void> {
 		for (let i = 0; i < TEARDOWN_POLL_ATTEMPTS; i++) {
 			const titles = new Set(this.terminalWindows(WINDOW_ENUM_TTL_MS).map((w) => w.title))
-			if (!oldIds.some((id) => titles.has(id))) return
+			if (!ids.some((id) => titles.has(id))) return
 			await sleep(TEARDOWN_POLL_INTERVAL_MS)
 		}
 	}
@@ -293,7 +303,13 @@ export class Orchestrator {
 	/** UI close action: serialized so it can't interleave with a session transition. */
 	closeSessionAction(): Promise<void> {
 		return this.serialize(async () => {
+			const oldIds = [...this.panes.keys()]
 			this.closeSession()
+			// The panes are OWNED windows of the command center; Windows can
+			// deactivate or minimize the owner as they're destroyed. Wait them out,
+			// then re-assert the center so it stays up and focused.
+			await this.waitForWindowsGone(oldIds)
+			this.layout.restoreCenter()
 		})
 	}
 

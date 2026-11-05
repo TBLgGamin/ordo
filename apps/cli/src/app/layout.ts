@@ -39,6 +39,7 @@ import {
 	getWorkArea,
 	listTerminalWindows,
 	type Rect,
+	restoreWindow,
 	setForegroundWindow,
 	setWindowHighlight,
 	setWindowOwner,
@@ -465,6 +466,11 @@ export class LayoutManager {
 		const was = this.dirty
 		this.dirty = false
 		return was
+	}
+
+	/** Un-minimize + refocus the command center (used after its owned windows close). */
+	restoreCenter(): void {
+		if (this.centerHwnd) restoreWindow(this.centerHwnd)
 	}
 
 	/** Cycle keyboard focus across the center + satellites by `delta` (+1 next, -1 prev). */

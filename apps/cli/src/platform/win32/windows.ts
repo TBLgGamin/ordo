@@ -41,6 +41,7 @@ function loadUser32() {
 				returns: FFIType.ptr,
 			},
 			ShowWindow: { args: [FFIType.ptr, FFIType.i32], returns: FFIType.bool },
+			IsIconic: { args: [FFIType.ptr], returns: FFIType.bool },
 			GetWindow: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
 			MonitorFromWindow: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
 			GetMonitorInfoW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool },
@@ -104,6 +105,7 @@ const GWLP_HWNDPARENT = -8
 const GW_OWNER = 4
 const SW_HIDE = 0
 const SW_SHOWNA = 8
+const SW_RESTORE = 9
 
 // DWM window-attribute constants (Windows 11 22000+).
 const DWMWA_BORDER_COLOR = 34
@@ -214,6 +216,19 @@ export function getForegroundWindow(): WindowHandle {
 export function setForegroundWindow(handle: WindowHandle): boolean {
 	if (!handle) return false
 	return user32().SetForegroundWindow(asPtr(handle))
+}
+
+/**
+ * Un-minimize `handle` (if iconic) and bring it to the foreground — used to
+ * re-assert the command center after its owned pane windows are destroyed,
+ * which can deactivate or minimize the owner as a side effect.
+ */
+export function restoreWindow(handle: WindowHandle): boolean {
+	if (!handle) return false
+	const u = user32()
+	const target = asPtr(handle)
+	if (u.IsIconic(target)) u.ShowWindow(target, SW_RESTORE)
+	return u.SetForegroundWindow(target)
 }
 
 /**
@@ -359,4 +374,5 @@ export const win32WindowManager: WindowManager = {
 	setWindowHighlight,
 	setWindowOwner,
 	getWindowOwner,
+	restoreWindow,
 }

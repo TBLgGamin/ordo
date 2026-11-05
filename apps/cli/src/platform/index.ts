@@ -103,6 +103,10 @@ export function getWindowOwner(handle: WindowHandle): WindowHandle | null {
 	return backends().wm.getWindowOwner(handle)
 }
 
+export function restoreWindow(handle: WindowHandle): boolean {
+	return backends().wm.restoreWindow(handle)
+}
+
 export function spawnWindow(opts: SpawnWindowOptions): Promise<{ handle?: WindowHandle }> {
 	return backends().term.spawnWindow(opts)
 }

@@ -40,6 +40,8 @@ export interface WindowManager {
 	setWindowOwner(handle: WindowHandle, owner: WindowHandle | null): boolean
 	/** Current group owner of `handle` (null if free-standing or unsupported). */
 	getWindowOwner(handle: WindowHandle): WindowHandle | null
+	/** Un-minimize `handle` if needed and bring it to the foreground. */
+	restoreWindow(handle: WindowHandle): boolean
 }
 
 export interface SpawnWindowOptions {

@@ -15,6 +15,7 @@ import {
 } from "@opentui/core"
 import { Orchestrator } from "../app/orchestrator"
 import { listSessionNames, loadSession, type SessionState, sessionsDir } from "../core/session"
+import { animateOnce, attachAnimations, spin, sweepLoop } from "./anim"
 import { relativeTime } from "./format"
 import {
 	handleKey,
@@ -24,7 +25,9 @@ import {
 	type InputState,
 } from "./input"
 import type { LaunchIntent, PaneSeed } from "./launch"
-import { PURPLE, sessionChunks } from "./styled"
+import { type LogEntry, LogStore } from "./logstore"
+import { LOGO_MARK, logEntryChunks, logoMarkChunks, PURPLE, sessionChunks } from "./styled"
+import { mixHex, PURPLE_BRIGHT, TRACK_BG } from "./theme"
 
 interface LoadedSession {
 	state: SessionState
@@ -61,14 +64,24 @@ function makeSessionLoader() {
 	}
 }
 
-/** Newest-first cap on the running action log kept in the input pane. */
+/** Newest-first cap on the log lines actually rendered (full history in the store). */
 const MAX_LOG_LINES = 200
+/** Below this width the sidebar stacks on top of the main area instead of beside it. */
+const NARROW_COLS = 64
+/** Below this width the statusline switches to its short labels. */
+const COMPACT_BAR_COLS = 90
+/** Below this height the brand strip inside the activity frame is hidden. */
+const LOGO_MIN_ROWS = 18
+/** Sidebar width by terminal width (wide / medium). */
+const SIDEBAR_WIDE = 32
+const SIDEBAR_MEDIUM = 26
 
 // ---------------------------------------------------------------------------
 // Command center — a session launcher/browser; `n` new, `a` add pane, `s` open
 // ---------------------------------------------------------------------------
 export async function runOrchestrator(renderer: CliRenderer, launch: LaunchIntent) {
 	const orchestrator = new Orchestrator()
+	attachAnimations(renderer)
 
 	// Input state: "open"/"delete"/"rename" modes await text typed into the input
 	// area; "confirmDelete" waits for a y/n; "none" is the resting state where the
@@ -77,9 +90,18 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 	let mode: "none" | "open" | "delete" | "rename" | "confirmDelete" = "none"
 	let pendingDelete = ""
 
-	// Layout: a top row (sessions sidebar on the left, input area filling the empty
-	// space to its right), then one continuous command bar linking them along the
-	// bottom.
+	// The main area is the running activity log, backed by this full-history
+	// store; `v` toggles the verbose view (everything, timestamped).
+	const logStore = new LogStore()
+	let verbose = false
+
+	// Latest agent-reported status per pane (from `status` events), keyed by pane
+	// id; pruned when panes change.
+	const agentStatus = new Map<string, { status: string; task?: string }>()
+
+	// Layout: the body (sessions sidebar beside the main activity area — stacked
+	// on narrow terminals), then a one-line statusline of commands. The brand
+	// mark lives inside the activity frame's top-left, not in its own header.
 	const root = new BoxRenderable(renderer, {
 		id: "root",
 		flexDirection: "column",
@@ -88,24 +110,24 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 	})
 	renderer.root.add(root)
 
-	const topRow = new BoxRenderable(renderer, { id: "topRow", flexDirection: "row", flexGrow: 1 })
-	root.add(topRow)
+	const body = new BoxRenderable(renderer, { id: "body", flexDirection: "row", flexGrow: 1 })
+	root.add(body)
 
 	const sidebar = new BoxRenderable(renderer, {
 		id: "sidebar",
 		border: true,
 		borderStyle: "rounded",
 		borderColor: PURPLE,
-		title: " ordo · sessions ",
+		title: " sessions ",
 		titleAlignment: "left",
 		flexDirection: "column",
 		paddingLeft: 1,
 		paddingRight: 1,
 		paddingTop: 1,
-		width: 32,
+		width: SIDEBAR_WIDE,
 		flexShrink: 0,
 	})
-	topRow.add(sidebar)
+	body.add(sidebar)
 
 	// Scrolls (↑/↓) when there are more sessions than fit. Thumb is purple too.
 	const scroll = new ScrollBoxRenderable(renderer, {
@@ -115,7 +137,7 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		scrollX: false,
 		verticalScrollbarOptions: {
 			showArrows: false,
-			trackOptions: { foregroundColor: PURPLE, backgroundColor: "#171520" },
+			trackOptions: { foregroundColor: PURPLE, backgroundColor: TRACK_BG },
 		},
 	})
 	sidebar.add(scroll)
@@ -124,15 +146,13 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 	const listBox = new BoxRenderable(renderer, { id: "listBox", flexDirection: "column" })
 	scroll.add(listBox)
 
-	// The input area — the rectangle of empty space to the right of the sidebar. It's
-	// two stacked parts: a scrollable running log of every action taken (fills the
-	// space) and, pinned to the bottom, the input line you type ids/titles into.
-	const inputArea = new BoxRenderable(renderer, {
-		id: "inputArea",
+	// --- main area: the running activity log + the input line -----------------
+	const main = new BoxRenderable(renderer, {
+		id: "main",
 		border: true,
 		borderStyle: "rounded",
 		borderColor: PURPLE,
-		title: " log · input ",
+		title: " activity ",
 		titleAlignment: "left",
 		flexDirection: "column",
 		flexGrow: 1,
@@ -141,9 +161,79 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		paddingRight: 1,
 		paddingTop: 1,
 	})
-	topRow.add(inputArea)
+	body.add(main)
 
-	// The log: scroll back (mouse wheel) through everything that has happened.
+	// The brand strip pinned inside the activity frame's top-left: the compact
+	// ordo mark, with the dim session summary on the right.
+	const brandStrip = new BoxRenderable(renderer, {
+		id: "brandStrip",
+		flexDirection: "row",
+		flexShrink: 0,
+		justifyContent: "space-between",
+		alignItems: "flex-end",
+		marginBottom: 1,
+	})
+	main.add(brandStrip)
+
+	const logoMark = new TextRenderable(renderer, {
+		id: "logoMark",
+		content: new StyledText(logoMarkChunks()),
+		flexShrink: 0,
+	})
+	brandStrip.add(logoMark)
+
+	const headerInfo = new TextRenderable(renderer, {
+		id: "headerInfo",
+		content: "",
+		flexShrink: 0,
+		marginLeft: 2,
+	})
+	brandStrip.add(headerInfo)
+
+	// One light pass at a time: the intro build-in on launch, a shorter sweep on
+	// big session actions. Both settle back to the resting purple mark.
+	const logoCols = LOGO_MARK[0]?.length ?? 12
+	let logoBusy = false
+	function paintLogo(opts: { reveal?: number; sweep?: number | null }): void {
+		try {
+			logoMark.content = new StyledText(logoMarkChunks(opts))
+		} catch {}
+	}
+	/** Launch animation: the mark builds up from the bottom, then a light sweeps across. */
+	function logoIntro(): void {
+		if (logoBusy || !brandStrip.visible) return
+		logoBusy = true
+		animateOnce(
+			(t) => {
+				if (t < 0.4) paintLogo({ reveal: t / 0.4, sweep: null })
+				else paintLogo({ sweep: -3 + ((t - 0.4) / 0.6) * (logoCols + 6) })
+			},
+			{
+				duration: 1200,
+				ease: "inOutSine",
+				onDone: () => {
+					logoBusy = false
+					paintLogo({})
+				},
+			},
+		)
+	}
+	/** Shorter light pass across the mark, played when a session opens or is created. */
+	function logoSweep(): void {
+		if (logoBusy || !brandStrip.visible) return
+		logoBusy = true
+		animateOnce((t) => paintLogo({ sweep: -3 + t * (logoCols + 6) }), {
+			duration: 700,
+			ease: "inOutSine",
+			onDone: () => {
+				logoBusy = false
+				paintLogo({})
+			},
+		})
+	}
+
+	// The activity log: scroll back (mouse wheel) through what has happened.
+	// Curated by default; `v` switches to everything, with timestamps.
 	const logScroll = new ScrollBoxRenderable(renderer, {
 		id: "logScroll",
 		flexGrow: 1,
@@ -151,16 +241,17 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		scrollX: false,
 		verticalScrollbarOptions: {
 			showArrows: false,
-			trackOptions: { foregroundColor: PURPLE, backgroundColor: "#171520" },
+			trackOptions: { foregroundColor: PURPLE, backgroundColor: TRACK_BG },
 		},
 	})
-	inputArea.add(logScroll)
+	main.add(logScroll)
 
 	const logBox = new BoxRenderable(renderer, { id: "logBox", flexDirection: "column" })
 	logScroll.add(logBox)
 
-	// The input line — empty at rest (the actions live in the bottom bar), a prompt
-	// while typing an id/title or confirming a delete.
+	// The input line — empty at rest (the actions live in the statusline), a busy
+	// spinner while an action runs, a prompt while typing an id/title or confirming
+	// a delete.
 	const inputLine = new TextRenderable(renderer, {
 		id: "inputLine",
 		content: "",
@@ -168,86 +259,156 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		flexShrink: 0,
 		marginTop: 1,
 	})
-	inputArea.add(inputLine)
+	main.add(inputLine)
 
+	// --- log rendering ---------------------------------------------------------
 	let logSeq = 0
+
+	function trimLog(): void {
+		const children = [...logBox.getChildren()]
+		const excess = children.length - MAX_LOG_LINES
+		for (let i = 0; i < excess; i++) children[i]?.destroy()
+	}
+
+	/** Pin the log to its newest line — after layout, so scrollHeight is current. */
+	function scrollLogToEnd(): void {
+		setTimeout(() => {
+			logScroll.scrollTop = logScroll.scrollHeight
+		}, 0)
+	}
+
+	/** Append one entry: store it, and if the current view shows it, render it
+	 * with a short fade-in from the background to its resting ink. */
+	function appendEntry(entry: LogEntry): void {
+		logStore.push(entry)
+		if (logStore.shows(entry, verbose)) {
+			const paint = (alpha: number) => logEntryChunks(entry, { timestamps: verbose, alpha })
+			const text = new TextRenderable(renderer, {
+				id: `log-${logSeq++}`,
+				content: new StyledText(paint(0)),
+			})
+			logBox.add(text)
+			trimLog()
+			scrollLogToEnd()
+			animateOnce(
+				(t) => {
+					try {
+						text.content = new StyledText(paint(t))
+					} catch {}
+				},
+				{ duration: 260 },
+			)
+		}
+		// Errors also flash the main frame so they register at the edge of vision.
+		if (entry.level === "error") {
+			animateOnce(
+				(t) => {
+					main.borderColor = mixHex(PURPLE_BRIGHT, PURPLE, t)
+				},
+				{ duration: 500 },
+			)
+		}
+	}
+
+	/** Rebuild the whole visible log from the store (used when toggling verbose). */
+	function renderLog(): void {
+		for (const child of [...logBox.getChildren()]) child.destroy()
+		for (const entry of logStore.visible(verbose, MAX_LOG_LINES)) {
+			logBox.add(
+				new TextRenderable(renderer, {
+					id: `log-${logSeq++}`,
+					content: new StyledText(logEntryChunks(entry, { timestamps: verbose })),
+				}),
+			)
+		}
+		scrollLogToEnd()
+	}
+
 	function appendLog(message: string, level: "info" | "warn" | "error" = "info"): void {
-		const text = message.replace(/^·\s*/, "")
-		const paint =
-			level === "error"
-				? (t: string) => bold(fg(PURPLE)(t))
-				: level === "warn"
-					? (t: string) => fg(PURPLE)(t)
-					: (t: string) => dim(fg(PURPLE)(t))
-		logBox.add(
-			new TextRenderable(renderer, {
-				id: `log-${logSeq++}`,
-				content: new StyledText([paint(`› ${text}`)]),
-			}),
-		)
-		const children = logBox.getChildren()
-		if (children.length > MAX_LOG_LINES) children[0]?.destroy()
-		logScroll.scrollTop = logScroll.scrollHeight
+		appendEntry({ ts: Date.now(), kind: "action", level, text: message })
 	}
 
-	function appendMessage(from: string, to: string, text: string, color?: string): void {
-		const accent = color ?? PURPLE
-		const oneLine = text.replace(/\s+/g, " ").trim()
-		const shown = oneLine.length > 80 ? `${oneLine.slice(0, 79)}…` : oneLine
-		logBox.add(
-			new TextRenderable(renderer, {
-				id: `log-${logSeq++}`,
-				content: new StyledText([
-					bold(fg(accent)(`${from} → ${to}`)),
-					dim(fg(accent)(`  ${shown}`)),
-				]),
-			}),
-		)
-		const children = logBox.getChildren()
-		if (children.length > MAX_LOG_LINES) children[0]?.destroy()
-		logScroll.scrollTop = logScroll.scrollHeight
+	/** The user's own inputs and their direct feedback — the default view. */
+	function appendUser(message: string, level: "info" | "warn" | "error" = "info"): void {
+		appendEntry({ ts: Date.now(), kind: "user", level, text: message })
 	}
 
-	function appendStatus(pane: string, status: string, task?: string, color?: string): void {
-		const accent = color ?? PURPLE
-		const clause = status.trim() === "" ? "cleared status" : status.replace(/\s+/g, " ").trim()
-		const chunks = [bold(fg(accent)(`${pane} ·`)), dim(fg(accent)(` ${clause}`))]
-		if (task && task.trim() !== "")
-			chunks.push(dim(fg(accent)(`  (task: ${task.replace(/\s+/g, " ").trim()})`)))
-		logBox.add(
-			new TextRenderable(renderer, {
-				id: `log-${logSeq++}`,
-				content: new StyledText(chunks),
-			}),
-		)
-		const children = logBox.getChildren()
-		if (children.length > MAX_LOG_LINES) children[0]?.destroy()
-		logScroll.scrollTop = logScroll.scrollHeight
+	/** Low-level chatter: only visible in the verbose view. */
+	function appendEvent(message: string): void {
+		appendEntry({ ts: Date.now(), kind: "event", level: "info", text: message })
 	}
 
-	// One continuous command bar (not separate boxes) linking the two columns.
-	const bottomBar = new BoxRenderable(renderer, {
-		id: "bottomBar",
-		border: true,
-		borderStyle: "rounded",
-		borderColor: PURPLE,
+	function toggleVerbose(): void {
+		verbose = !verbose
+		main.title = verbose ? " activity · everything " : " activity "
+		appendUser(verbose ? "verbose on" : "verbose off")
+		renderLog()
+	}
+
+	// --- busy spinner ------------------------------------------------------------
+	// While any orchestrator action is in flight, the resting input line shows a
+	// spinner with the action's verb.
+	let busyCount = 0
+	let busyLabel = ""
+	let spinFrame = "⠋"
+	let stopSpin: (() => void) | undefined
+
+	function busy<T>(label: string, work: Promise<T>): Promise<T> {
+		busyCount++
+		busyLabel = label
+		if (!stopSpin) {
+			stopSpin = spin((frame) => {
+				spinFrame = frame
+				if (mode === "none") redrawInput()
+			})
+		}
+		return work.finally(() => {
+			busyCount--
+			if (busyCount <= 0) {
+				busyCount = 0
+				stopSpin?.()
+				stopSpin = undefined
+				redrawInput()
+			}
+		})
+	}
+
+	// --- statusline: one borderless strip of clickable commands -------------------
+	const statusBar = new BoxRenderable(renderer, {
+		id: "statusBar",
 		flexDirection: "row",
 		flexShrink: 0,
 		marginTop: 1,
 		paddingLeft: 1,
 		paddingRight: 1,
+		backgroundColor: TRACK_BG,
 	})
-	root.add(bottomBar)
+	root.add(statusBar)
 
-	function makeCommand(id: string, label: string, onClick: () => void): void {
-		bottomBar.add(
-			new TextRenderable(renderer, {
-				id: `cmd-${id}`,
-				content: label,
-				fg: PURPLE,
-				marginRight: 3,
-				onMouseDown: () => onClick(),
-			}),
+	const commands = new Map<string, { text: TextRenderable; full: string; short: string }>()
+	function makeCommand(id: string, full: string, short: string, onClick: () => void): void {
+		const text = new TextRenderable(renderer, {
+			id: `cmd-${id}`,
+			content: full,
+			fg: PURPLE,
+			marginRight: 3,
+			onMouseDown: () => onClick(),
+		})
+		statusBar.add(text)
+		commands.set(id, { text, full, short })
+	}
+
+	/** Micro-flash the statusline label of the command that just fired. */
+	function flashCommand(id: string): void {
+		const cmd = commands.get(id)
+		if (!cmd) return
+		animateOnce(
+			(t) => {
+				try {
+					cmd.text.fg = mixHex(PURPLE_BRIGHT, PURPLE, t)
+				} catch {}
+			},
+			{ duration: 350 },
 		)
 	}
 
@@ -277,16 +438,67 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 			])
 			return
 		}
+		if (busyCount > 0) {
+			inputLine.content = new StyledText([dim(purple(`${spinFrame} ${busyLabel}…`))])
+			return
+		}
 		inputLine.content = ""
 	}
 
 	const loadSessions = makeSessionLoader()
-	const rowRegistry = new Map<string, { text: TextRenderable; mtimeMs: number; rel: string }>()
+	const rowRegistry = new Map<
+		string,
+		{ text: TextRenderable; state: SessionState; mtimeMs: number; rel: string }
+	>()
 	let lastSignature = ""
+
+	// The live session is marked by a light band sweeping across its heading,
+	// looping for as long as a session is open — the same pass the logo plays.
+	let liveSweep: number | null = null
+	let stopLiveSweep: (() => void) | undefined
+	const LIVE_SWEEP_SPAN = 24
+
+	function repaintLiveRow(): void {
+		const id = orchestrator.sessionId
+		if (!id) return
+		const entry = rowRegistry.get(id)
+		if (!entry) return
+		try {
+			entry.text.content = new StyledText(sessionChunks(entry.state, true, liveSweep, agentStatus))
+		} catch {}
+	}
+
+	/** Start/stop the looping heading sweep to match whether a session is open.
+	 * Each 5s loop plays one ~1.2s pass, then the heading rests. */
+	function syncLiveSweep(): void {
+		if (orchestrator.hasSession && !stopLiveSweep) {
+			const PASS = 0.24
+			stopLiveSweep = sweepLoop((t) => {
+				const next = t < PASS ? -3 + (t / PASS) * (LIVE_SWEEP_SPAN + 6) : null
+				if (next === null && liveSweep === null) return
+				liveSweep = next
+				repaintLiveRow()
+			}, 5000)
+		} else if (!orchestrator.hasSession && stopLiveSweep) {
+			stopLiveSweep()
+			stopLiveSweep = undefined
+			liveSweep = null
+		}
+	}
+
+	function renderHeaderInfo(sessionCount: number): void {
+		const parts: string[] = [`${sessionCount} session${sessionCount === 1 ? "" : "s"}`]
+		if (orchestrator.hasSession) {
+			const n = orchestrator.paneList.length
+			parts.push(`${n} pane${n === 1 ? "" : "s"}`)
+		}
+		headerInfo.content = new StyledText([dim(fg(PURPLE)(parts.join(" · ")))])
+	}
 
 	function renderSessions(): void {
 		try {
 			const sessions = loadSessions()
+			renderHeaderInfo(sessions.length)
 			const signature = sessions
 				.map((s) => `${s.state.id}:${s.state.id === orchestrator.sessionId ? 1 : 0}`)
 				.join("|")
@@ -298,9 +510,11 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 					const entry = rowRegistry.get(s.state.id)
 					if (!entry) continue
 					const rel = relativeTime(s.state.updatedAt)
+					entry.state = s.state
 					if (entry.mtimeMs === s.mtimeMs && entry.rel === rel) continue
+					const live = s.state.id === orchestrator.sessionId
 					entry.text.content = new StyledText(
-						sessionChunks(s.state, s.state.id === orchestrator.sessionId),
+						sessionChunks(s.state, live, live ? liveSweep : null, agentStatus),
 					)
 					entry.mtimeMs = s.mtimeMs
 					entry.rel = rel
@@ -339,12 +553,15 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 				})
 				const text = new TextRenderable(renderer, {
 					id: `rowtxt-${s.state.id}`,
-					content: new StyledText(sessionChunks(s.state, live)),
+					content: new StyledText(
+						sessionChunks(s.state, live, live ? liveSweep : null, agentStatus),
+					),
 				})
 				row.add(text)
 				listBox.add(row)
 				rowRegistry.set(s.state.id, {
 					text,
+					state: s.state,
 					mtimeMs: s.mtimeMs,
 					rel: relativeTime(s.state.updatedAt),
 				})
@@ -364,7 +581,52 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		}, 50)
 	}
 
-	// --- actions (shared by the keys and the clickable bottom-bar commands) ----
+	// --- responsive layout ---------------------------------------------------
+	// People resize the command window; keep the layout legible at any size.
+	// Wide: sidebar beside the main area, ASCII logo up top. Narrow: stacked,
+	// one-line logo. Tight heights drop padding, then the statusline (its keys
+	// keep working), then the header.
+	let compactBar: boolean | undefined
+	function applyLayout(width: number, height: number): void {
+		const narrow = width < NARROW_COLS
+		const tight = height < 14 || width < 40
+		root.padding = tight ? 0 : 1
+		body.flexDirection = narrow ? "column" : "row"
+		if (narrow) {
+			sidebar.width = "100%"
+			sidebar.height = Math.max(7, Math.floor(height * 0.35))
+			main.marginLeft = 0
+			main.marginTop = 1
+		} else {
+			sidebar.width = width < 92 ? SIDEBAR_MEDIUM : SIDEBAR_WIDE
+			sidebar.height = "auto"
+			main.marginLeft = 1
+			main.marginTop = 0
+		}
+		brandStrip.visible = height >= LOGO_MIN_ROWS
+		headerInfo.visible = width >= 44
+		statusBar.visible = height >= 12
+		const compact = width < COMPACT_BAR_COLS
+		if (compact !== compactBar) {
+			compactBar = compact
+			for (const cmd of commands.values()) {
+				cmd.text.content = compact ? cmd.short : cmd.full
+				cmd.text.marginRight = compact ? 2 : 3
+			}
+		}
+	}
+
+	let resizeLogTimer: ReturnType<typeof setTimeout> | undefined
+	renderer.on("resize", (width: number, height: number) => {
+		applyLayout(width, height)
+		if (resizeLogTimer) clearTimeout(resizeLogTimer)
+		resizeLogTimer = setTimeout(() => {
+			resizeLogTimer = undefined
+			appendEvent(`resized to ${renderer.terminalWidth}×${renderer.terminalHeight}`)
+		}, 400)
+	})
+
+	// --- actions (shared by the keys and the clickable statusline commands) ----
 	function resetMode(): void {
 		mode = "none"
 		buffer = ""
@@ -372,21 +634,28 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 	}
 
 	async function doNew(seed?: PaneSeed): Promise<void> {
+		appendUser("new session")
 		// newSession() closes any current session first (single atomic action).
-		await orchestrator.newSession(seed).catch(() => {})
+		await busy("new session", orchestrator.newSession(seed))
+			.then(() => logoSweep())
+			.catch(() => {})
 	}
 
 	async function doAdd(): Promise<void> {
-		await orchestrator.addPane().catch(() => {})
+		appendUser("add pane")
+		await busy("adding pane", orchestrator.addPane()).catch(() => {})
 	}
 
 	async function doOpen(id: string): Promise<void> {
 		const trimmed = id.trim()
 		resetMode()
 		if (!trimmed) return
+		appendUser(`open ${trimmed}`)
 		// openSession() is the single shared restore action: it closes whatever's
 		// open and restores the requested session in one step.
-		await orchestrator.openSession(trimmed).catch(() => {})
+		await busy("opening session", orchestrator.openSession(trimmed))
+			.then(() => logoSweep())
+			.catch(() => {})
 	}
 
 	/** Stage a delete: hold the id and switch to a y/n confirmation prompt. */
@@ -406,52 +675,86 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		const trimmed = id.trim()
 		resetMode()
 		if (!trimmed) return
-		await orchestrator.deleteSavedSession(trimmed).catch(() => {})
+		appendUser(`delete ${trimmed}`)
+		await busy("deleting", orchestrator.deleteSavedSession(trimmed)).catch(() => {})
 	}
 
 	function doRename(title: string): void {
 		const trimmed = title.trim()
 		resetMode()
 		if (!trimmed) return
+		appendUser(`rename → "${trimmed}"`)
 		orchestrator.renameSession(trimmed)
 	}
 
 	function doClose(): void {
 		if (!orchestrator.hasSession) {
-			appendLog("no session open", "warn")
+			appendUser("no session open", "warn")
 			return
 		}
-		void orchestrator.closeSessionAction().catch(() => {})
+		appendUser("close session")
+		void busy("closing session", orchestrator.closeSessionAction()).catch(() => {})
 	}
 
 	function enterMode(next: "open" | "delete" | "rename"): void {
 		if (next === "rename" && !orchestrator.hasSession) {
-			appendLog("no session to rename", "warn")
+			appendUser("no session to rename", "warn")
 			return
 		}
+		flashCommand(next === "open" ? "s" : next === "delete" ? "d" : "r")
 		mode = next
 		buffer = ""
 		redrawInput()
 	}
 
-	makeCommand("n", "n new", () => void doNew())
-	makeCommand("a", "a add pane", () => void doAdd())
-	makeCommand("s", "s open", () => enterMode("open"))
-	makeCommand("c", "c close", () => doClose())
-	makeCommand("r", "r rename", () => enterMode("rename"))
-	makeCommand("d", "d delete", () => enterMode("delete"))
+	makeCommand("n", "n new", "n new", () => void doNew())
+	makeCommand("a", "a add pane", "a add", () => void doAdd())
+	makeCommand("s", "s open", "s open", () => enterMode("open"))
+	makeCommand("c", "c close", "c close", () => doClose())
+	makeCommand("r", "r rename", "r ren", () => enterMode("rename"))
+	makeCommand("d", "d delete", "d del", () => enterMode("delete"))
+	makeCommand("v", "v verbose", "v all", () => {
+		flashCommand("v")
+		toggleVerbose()
+	})
+	makeCommand("q", "q quit", "q quit", () => void shutdown())
 
 	orchestrator.on((e) => {
 		if (e.type === "panes-changed") {
+			appendEvent("panes changed")
+			for (const id of [...agentStatus.keys()]) {
+				if (!orchestrator.paneList.some((p) => p.id === id)) agentStatus.delete(id)
+			}
 			scheduleRender()
 			redrawInput()
+			syncLiveSweep()
 		} else if (e.type === "log") {
-			// Every orchestrator event is appended to the scrollable running log.
+			// Every orchestrator event lands in the log store.
 			appendLog(e.message, e.level)
 		} else if (e.type === "message") {
-			appendMessage(e.from, e.to, e.text, e.color)
+			appendEntry({
+				ts: Date.now(),
+				kind: "message",
+				level: "info",
+				text: e.text,
+				from: e.from,
+				to: e.to,
+				color: e.color,
+			})
 		} else if (e.type === "status") {
-			appendStatus(e.pane, e.status, e.task, e.color)
+			agentStatus.set(e.pane, { status: e.status, task: e.task })
+			appendEntry({
+				ts: Date.now(),
+				kind: "status",
+				level: "info",
+				text: e.status,
+				pane: e.pane,
+				task: e.task,
+				color: e.color,
+			})
+			// The sidebar shows each live pane's latest status after its name. Status
+			// events don't touch the session file, so repaint the live row directly.
+			repaintLiveRow()
 		}
 	})
 
@@ -468,6 +771,9 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		shuttingDown = true
 		if (refresh) clearInterval(refresh)
 		if (renderTimer) clearTimeout(renderTimer)
+		if (resizeLogTimer) clearTimeout(resizeLogTimer)
+		stopSpin?.()
+		stopLiveSweep?.()
 		try {
 			await orchestrator.shutdown()
 		} catch {}
@@ -524,19 +830,28 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 				scroll.scrollBy(action.by)
 				break
 			case "focusNext":
+				appendUser("focus → next pane")
 				orchestrator.focusNext()
 				break
 			case "focusPrev":
+				appendUser("focus → previous pane")
 				orchestrator.focusPrev()
 				break
 			case "new":
+				flashCommand("n")
 				void doNew()
 				break
 			case "add":
+				flashCommand("a")
 				void doAdd()
 				break
 			case "close":
+				flashCommand("c")
 				doClose()
+				break
+			case "toggleLog":
+				flashCommand("v")
+				toggleVerbose()
 				break
 			case "open":
 				void doOpen(action.id)
@@ -548,7 +863,7 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 				doRename(action.title)
 				break
 			case "status":
-				appendLog(action.message, "warn")
+				appendUser(action.message, "warn")
 				break
 			case "redraw":
 				redrawInput()
@@ -559,9 +874,12 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 	}
 
 	function applyInput(result: InputResult): void {
+		const entering = result.state.mode !== "none" && mode === "none"
 		mode = result.state.mode
 		buffer = result.state.buffer
 		pendingDelete = result.state.pendingDelete
+		if (entering && (mode === "open" || mode === "delete" || mode === "rename"))
+			flashCommand(mode === "open" ? "s" : mode === "delete" ? "d" : "r")
 		dispatch(result.action)
 	}
 
@@ -570,9 +888,11 @@ export async function runOrchestrator(renderer: CliRenderer, launch: LaunchInten
 		applyInput(handlePaste(snapshot(), decodePasteBytes(e.bytes))),
 	)
 
+	applyLayout(renderer.terminalWidth, renderer.terminalHeight)
 	renderSessions()
 	redrawInput()
 	renderer.start()
+	logoIntro()
 
 	// Keep relative times current and pick up the live session's continuous saves.
 	refresh = setInterval(renderSessions, 2000)

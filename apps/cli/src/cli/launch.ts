@@ -54,6 +54,8 @@ export async function openCommandCenter(intent: LaunchIntent): Promise<void> {
 		throw new OrdoError(`no saved session "${intent.name}"`)
 	}
 	const commandline = [BUN_EXE, "run", ENTRY_PATH, ...buildInWindowArgs(intent)]
-	const restoreName = intent.kind === "restore" ? intent.name : undefined
-	await openSelfWindow(commandline, PROJECT_DIR, restoreName)
+	// Title the window: the restored session's name, or "ordo" for a fresh
+	// launcher/session (otherwise the tab shows the shell profile's name).
+	const title = intent.kind === "restore" ? intent.name : "ordo"
+	await openSelfWindow(commandline, PROJECT_DIR, title)
 }

@@ -37,6 +37,18 @@ describe("handleKey — resting mode", () => {
 		})
 	})
 
+	test("v toggles the verbose log", () => {
+		const r = handleKey(base(), { sequence: "v" })
+		expect(r.action).toEqual({ type: "toggleLog" })
+		expect(r.state.mode).toBe("none")
+	})
+
+	test("v while typing goes to the buffer, not the toggle", () => {
+		const r = handleKey(base({ mode: "open", buffer: "de" }), { sequence: "v" })
+		expect(r.state.buffer).toBe("dev")
+		expect(r.action.type).toBe("redraw")
+	})
+
 	test("arrow keys scroll", () => {
 		expect(handleKey(base(), { name: "up" }).action).toEqual({ type: "scroll", by: -2 })
 		expect(handleKey(base(), { name: "pagedown" }).action).toEqual({ type: "scroll", by: 10 })

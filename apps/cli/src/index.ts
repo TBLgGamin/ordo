@@ -5,12 +5,14 @@ import { AGENT_PROGRAMS, parseArgValue } from "./core/config"
 import { OrdoError, reportError } from "./core/errors"
 
 async function runInWindow(intent: LaunchIntent) {
-	const [{ createCliRenderer }, { runOrchestrator }] = await Promise.all([
+	const [{ createCliRenderer }, { runOrchestrator }, { BG }] = await Promise.all([
 		import("@opentui/core"),
 		import("./cli/tui"),
+		import("./cli/theme"),
 	])
 	const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30, useMouse: true })
-	renderer.setBackgroundColor("#0b0e14")
+	// Near-black with a cast of the accent, derived from ORDO_SELECT_COLOR.
+	renderer.setBackgroundColor(BG)
 	await runOrchestrator(renderer, intent)
 }
 

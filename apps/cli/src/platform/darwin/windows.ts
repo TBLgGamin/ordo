@@ -121,5 +121,6 @@ end tell`,
 		setWindowHighlight() {},
 		setWindowOwner: () => false,
 		getWindowOwner: () => null,
+		restoreWindow: setForegroundWindow,
 	}
 }

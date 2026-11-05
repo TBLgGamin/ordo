@@ -225,6 +225,19 @@ export const TITLE_ENABLED = (process.env.ORDO_TITLE ?? "1") !== "0"
 export const TITLE_DEBOUNCE_MS = numEnv("ORDO_TITLE_DEBOUNCE", 15000, 1000, 600000)
 
 /**
+ * Delay (ms) before a session's very first title — short, so a fresh session
+ * gets a real name quickly instead of sitting on its id for a full debounce.
+ */
+export const TITLE_FIRST_DELAY_MS = numEnv("ORDO_TITLE_FIRST_DELAY", 3000, 250, 600000)
+
+/**
+ * Ceiling (ms) on how long continuous activity can postpone a retitle. The
+ * trailing debounce resets on every new command; without this cap a busy
+ * session would never retitle until it went completely quiet.
+ */
+export const TITLE_MAX_WAIT_MS = numEnv("ORDO_TITLE_MAX_WAIT", 60000, 5000, 3600000)
+
+/**
  * Max bytes the daemon buffers toward a single (slow) attach client before it
  * gives up and drops that client — a backpressure safety valve so one wedged pane
  * window can't grow the daemon's memory without bound.
