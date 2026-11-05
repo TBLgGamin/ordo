@@ -66,7 +66,15 @@ ensure_bun() {
 resolve_repo() {
 	if [ -f "$INSTALL_DIR/$CLI_REL/package.json" ]; then
 		step "Using existing ordo install at $INSTALL_DIR"
-		if [ "$UPDATE" = "1" ]; then git -C "$INSTALL_DIR" pull --ff-only >/dev/null 2>&1 || info "git pull failed; continuing."; fi
+		if [ "$UPDATE" = "1" ]; then
+			# The default branch was renamed from master to main: move old clones over.
+			if [ "$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "master" ]; then
+				git -C "$INSTALL_DIR" fetch --prune origin >/dev/null 2>&1 &&
+					git -C "$INSTALL_DIR" branch -m master main >/dev/null 2>&1 &&
+					git -C "$INSTALL_DIR" branch -u origin/main main >/dev/null 2>&1
+			fi
+			git -C "$INSTALL_DIR" pull --ff-only >/dev/null 2>&1 || info "git pull failed; continuing."
+		fi
 		return
 	fi
 	have git || fatal "git is required to clone ordo."

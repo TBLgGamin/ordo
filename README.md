@@ -67,12 +67,12 @@ ordo detects your terminal automatically; set `ORDO_TERMINAL` to force one.
 
 ```powershell
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/TBLgGamin/ordo/main/scripts/install.ps1 | iex
 ```
 
 ```sh
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TBLgGamin/ordo/main/scripts/install.sh | bash
 ```
 
 Then type `ordo`. The launcher opens in a new terminal window, where you can start a fresh session, restore saved work and spawn panes.
@@ -80,11 +80,11 @@ Then type `ordo`. The launcher opens in a new terminal window, where you can sta
 To uninstall, run the matching script. Pass `-KeepData` (Windows) or `--keep-data` (macOS/Linux) to keep saved sessions and local model files.
 
 ```powershell
-irm https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/TBLgGamin/ordo/main/scripts/uninstall.ps1 | iex
 ```
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/TBLgGamin/ordo/master/scripts/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TBLgGamin/ordo/main/scripts/uninstall.sh | bash
 ```
 
 ## Usage

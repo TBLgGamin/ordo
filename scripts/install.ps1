@@ -75,6 +75,13 @@ function Test-OrdoRepo($dir) {
 
 function Update-Repo($dir) {
 	Write-Step 'Updating ordo'
+	# The default branch was renamed from master to main: move old clones over.
+	$branch = (Invoke-Quiet 'git' @('-C', $dir, 'rev-parse', '--abbrev-ref', 'HEAD')).Output
+	if ("$branch".Trim() -eq 'master') {
+		Invoke-Quiet 'git' @('-C', $dir, 'fetch', '--prune', 'origin') | Out-Null
+		Invoke-Quiet 'git' @('-C', $dir, 'branch', '-m', 'master', 'main') | Out-Null
+		Invoke-Quiet 'git' @('-C', $dir, 'branch', '-u', 'origin/main', 'main') | Out-Null
+	}
 	$result = Invoke-Quiet 'git' @('-C', $dir, 'pull', '--ff-only')
 	if ($result.Code -ne 0) {
 		Write-Info 'git pull failed; continuing with the existing checkout.'
