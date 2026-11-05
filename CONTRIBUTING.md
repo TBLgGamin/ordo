@@ -4,7 +4,8 @@ Thanks for taking the time to improve ordo.
 
 ordo is cross-platform (Windows, macOS, Linux), built around Bun, Astro, a local
 daemon, and a per-OS terminal + window-management layer. Changes should keep that
-workflow fast, local, and understandable.
+workflow fast, local, and understandable. By taking part you agree to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Before you start
 
@@ -104,9 +105,13 @@ A good PR includes:
 - The checks you ran.
 - Any known tradeoffs or follow-up work.
 
+Pull requests are squash-merged and the PR title becomes the commit message, so
+write it as a [Conventional Commit](https://www.conventionalcommits.org), the
+style of the history: `feat(cli): ...`, `fix(wm): ...`, `docs: ...`.
+
 ## Reporting bugs
 
-Please include:
+Use the bug report form when you open an issue. It asks for:
 
 - Your OS and version.
 - Your terminal emulator (and, on Linux, your window manager / compositor and
@@ -119,9 +124,8 @@ Please include:
 
 ## Security
 
-Please do not open public issues for security-sensitive reports. If the project
-does not yet list a private security contact, open a minimal issue asking for a
-private reporting channel without posting exploit details.
+Never open a public issue for a vulnerability. Report it privately as described
+in [SECURITY.md](SECURITY.md).
 
 ## License
 

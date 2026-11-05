@@ -38,6 +38,7 @@ Shells live in a background daemon, not in the windows. Close a window and its s
 - [How it works](#how-it-works)
 - [Development](#development)
 - [Contributing](#contributing)
+- [Security](#security)
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
 
@@ -229,7 +230,11 @@ Platform-specific code lives under `apps/cli/src/platform/{win32,darwin,linux}` 
 
 ## Contributing
 
-Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, checks and conventions before opening a PR.
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, checks and conventions before opening a PR, and the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
 
 ## Acknowledgements
 
