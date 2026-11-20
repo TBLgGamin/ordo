@@ -24,7 +24,7 @@
 		"@xterm/addon-serialize": "^0.14.0",
 		"@xterm/headless": "^6.0.0",
 		"node-llama-cpp": "^3.19.0",
-		"zod": "3"
+		"zod": "^4.6.7"
 	},
 	"trustedDependencies": [
 		"node-llama-cpp"
